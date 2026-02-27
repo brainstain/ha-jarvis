@@ -9,6 +9,7 @@ import aiohttp
 
 from homeassistant.components import conversation
 from homeassistant.components.conversation import trace
+from homeassistant.components.conversation.const import HOME_ASSISTANT_AGENT
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import MATCH_ALL
 from homeassistant.core import HomeAssistant
@@ -22,12 +23,14 @@ from .const import (
     CONF_PROMPT,
     CONF_TEMPERATURE,
     CONF_TOP_P,
+    CONF_TRY_HA_FIRST,
     DEFAULT_KEEP_ALIVE,
     DEFAULT_MAX_HISTORY,
     DEFAULT_MODEL,
     DEFAULT_PROMPT,
     DEFAULT_TEMPERATURE,
     DEFAULT_TOP_P,
+    DEFAULT_TRY_HA_FIRST,
     DOMAIN,
     OLLAMA_CHAT_ENDPOINT,
 )
@@ -103,15 +106,36 @@ class JarvisConversationEntity(conversation.ConversationEntity):
         """Get keep_alive setting."""
         return self.entry.options.get(CONF_KEEP_ALIVE, DEFAULT_KEEP_ALIVE)
 
+    @property
+    def _try_ha_first(self) -> bool:
+        """Get try_ha_first setting."""
+        return self.entry.options.get(CONF_TRY_HA_FIRST, DEFAULT_TRY_HA_FIRST)
+
     async def _async_handle_message(
         self,
         user_input: conversation.ConversationInput,
         chat_log: conversation.ChatLog,
     ) -> conversation.ConversationResult:
-        """Process user input by calling the Ollama API."""
+        """Process user input, trying HA built-in intents first if enabled."""
         conversation_id = user_input.conversation_id or "default"
 
-        # Build messages from our own history
+        # Step 1: Try HA's built-in intent matching (DefaultAgent) first
+        if self._try_ha_first:
+            ha_result = await self._try_default_agent(user_input)
+            if ha_result is not None:
+                trace.async_conversation_trace_append(
+                    trace.ConversationTraceEventType.AGENT_DETAIL,
+                    {"source": "ha_default_agent", "matched": True},
+                )
+                return ha_result
+
+            trace.async_conversation_trace_append(
+                trace.ConversationTraceEventType.AGENT_DETAIL,
+                {"source": "ha_default_agent", "matched": False,
+                 "fallback": "ollama"},
+            )
+
+        # Step 2: Fall back to Ollama LLM
         messages = self._build_messages(conversation_id, user_input.text)
 
         trace.async_conversation_trace_append(
@@ -150,6 +174,51 @@ class JarvisConversationEntity(conversation.ConversationEntity):
             conversation_id=conversation_id,
             continue_conversation=False,
         )
+
+    async def _try_default_agent(
+        self, user_input: conversation.ConversationInput
+    ) -> conversation.ConversationResult | None:
+        """Try HA's built-in DefaultAgent for intent matching.
+
+        Returns the result if an intent was matched, or None if not.
+        """
+        try:
+            # Call the built-in Home Assistant DefaultAgent
+            result = await conversation.async_converse(
+                hass=self.hass,
+                text=user_input.text,
+                conversation_id=None,  # Don't share conv history with default agent
+                context=user_input.context,
+                language=user_input.language,
+                agent_id=HOME_ASSISTANT_AGENT,
+                device_id=user_input.device_id,
+            )
+
+            # Check if the default agent actually matched an intent
+            if (
+                result.response.response_type
+                != intent.IntentResponseType.ERROR
+            ):
+                _LOGGER.debug(
+                    "HA default agent handled intent for: %s",
+                    user_input.text,
+                )
+                return result
+
+            # Default agent returned an error - check if it's a no-match
+            _LOGGER.debug(
+                "HA default agent did not match (error_code=%s): %s",
+                result.response.error_code,
+                user_input.text,
+            )
+            return None
+
+        except Exception as err:
+            _LOGGER.warning(
+                "Error calling HA default agent, falling back to Ollama: %s",
+                err,
+            )
+            return None
 
     def _build_messages(
         self, conversation_id: str, user_text: str

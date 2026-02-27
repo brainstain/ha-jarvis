@@ -25,6 +25,7 @@ from .const import (
     CONF_PROMPT,
     CONF_TEMPERATURE,
     CONF_TOP_P,
+    CONF_TRY_HA_FIRST,
     DEFAULT_HOST,
     DEFAULT_KEEP_ALIVE,
     DEFAULT_MAX_HISTORY,
@@ -33,6 +34,7 @@ from .const import (
     DEFAULT_PROMPT,
     DEFAULT_TEMPERATURE,
     DEFAULT_TOP_P,
+    DEFAULT_TRY_HA_FIRST,
     DOMAIN,
     OLLAMA_TAGS_ENDPOINT,
 )
@@ -124,6 +126,7 @@ class HaJarvisConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_MODEL: user_input[CONF_MODEL],
                 },
                 options={
+                    CONF_TRY_HA_FIRST: DEFAULT_TRY_HA_FIRST,
                     CONF_PROMPT: DEFAULT_PROMPT,
                     CONF_MAX_HISTORY: DEFAULT_MAX_HISTORY,
                     CONF_KEEP_ALIVE: DEFAULT_KEEP_ALIVE,
@@ -172,6 +175,12 @@ class HaJarvisOptionsFlow(OptionsFlow):
             step_id="init",
             data_schema=vol.Schema(
                 {
+                    vol.Optional(
+                        CONF_TRY_HA_FIRST,
+                        default=options.get(
+                            CONF_TRY_HA_FIRST, DEFAULT_TRY_HA_FIRST
+                        ),
+                    ): bool,
                     vol.Optional(
                         CONF_PROMPT,
                         default=options.get(CONF_PROMPT, DEFAULT_PROMPT),

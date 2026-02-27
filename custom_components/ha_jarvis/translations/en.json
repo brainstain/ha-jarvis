@@ -28,6 +28,7 @@
         "title": "HA Jarvis Options",
         "description": "Configure the conversation agent behavior.",
         "data": {
+          "try_ha_first": "Try Home Assistant intents first (device control)",
           "prompt": "System Prompt",
           "max_history": "Max Conversation History (turns)",
           "temperature": "Temperature",

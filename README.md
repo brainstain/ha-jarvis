@@ -4,11 +4,21 @@ A Home Assistant custom conversation agent powered by [Ollama](https://ollama.co
 
 ## Features
 
+- **Intent-First Architecture**: Tries Home Assistant's built-in intent system first for fast, reliable device control ("turn on the lights"), then falls back to Ollama for everything else
 - **Fully Local**: All processing stays on your network - no cloud APIs needed
 - **Conversation Agent**: Integrates with Home Assistant's conversation pipeline for voice assistants
 - **Model Selection**: Choose from any model available on your Ollama server
 - **Conversation History**: Maintains context across multi-turn conversations
 - **Configurable**: Customize system prompt, temperature, top_p, and more via the UI
+
+## How It Works
+
+When you say something to Jarvis, it follows this flow:
+
+1. **Try HA first** (enabled by default): Your input is sent to Home Assistant's built-in DefaultAgent, which uses intent matching to handle device control commands like "turn on the kitchen lights", "set thermostat to 72", or "lock the front door"
+2. **Fall back to Ollama**: If the DefaultAgent doesn't match an intent (e.g., "what's a good recipe for pasta?"), the input is sent to your local Ollama LLM for a conversational response
+
+This gives you the best of both worlds: fast, reliable device control through HA's native system, plus the intelligence of a local LLM for general conversation.
 
 ## Prerequisites
 
@@ -44,6 +54,7 @@ After setup, you can configure these options:
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| Try HA First | Yes | Try Home Assistant's built-in intent matching before Ollama. Handles device control commands natively. |
 | System Prompt | JARVIS personality | The system prompt that defines the assistant's personality |
 | Max History | 10 | Number of conversation turns to keep in context |
 | Temperature | 0.7 | Controls randomness (0.0 = deterministic, 2.0 = very random) |
