@@ -1,0 +1,14 @@
+{
+  "domain": "ha_jarvis",
+  "name": "HA Jarvis",
+  "after_dependencies": ["assist_pipeline", "intent"],
+  "codeowners": ["@brainstain"],
+  "config_flow": true,
+  "dependencies": ["conversation"],
+  "documentation": "https://github.com/brainstain/ha-jarvis",
+  "integration_type": "service",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/brainstain/ha-jarvis/issues",
+  "requirements": ["aiohttp>=3.8.0"],
+  "version": "1.0.0"
+}

@@ -1,0 +1,40 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Ollama",
+        "description": "Enter the connection details for your Ollama server.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
+      },
+      "model": {
+        "title": "Select Model",
+        "description": "Choose which Ollama model to use for conversations.",
+        "data": {
+          "model": "Model"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to Ollama server. Ensure it is running and accessible.",
+      "no_models": "No models found on the Ollama server. Pull a model first (e.g., `ollama pull llama3.1`)."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HA Jarvis Options",
+        "description": "Configure the conversation agent behavior.",
+        "data": {
+          "prompt": "System Prompt",
+          "max_history": "Max Conversation History (turns)",
+          "temperature": "Temperature",
+          "top_p": "Top P",
+          "keep_alive": "Keep Alive Duration"
+        }
+      }
+    }
+  }
+}
