@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 import aiohttp
 
@@ -13,7 +14,7 @@ from homeassistant.components.conversation.const import HOME_ASSISTANT_AGENT
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import MATCH_ALL
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import intent
+from homeassistant.helpers import intent, llm
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
@@ -32,10 +33,25 @@ from .const import (
     DEFAULT_TOP_P,
     DEFAULT_TRY_HA_FIRST,
     DOMAIN,
+    MAX_TOOL_ITERATIONS,
     OLLAMA_CHAT_ENDPOINT,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+LLM_API_ID = "assist"
+
+
+def _format_tool(tool: llm.Tool) -> dict[str, Any]:
+    """Format an HA LLM tool into Ollama's function-calling format."""
+    return {
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description or "",
+            "parameters": tool.parameters,
+        },
+    }
 
 
 async def async_setup_entry(
@@ -52,6 +68,7 @@ class JarvisConversationEntity(conversation.ConversationEntity):
 
     _attr_has_entity_name = True
     _attr_name = None
+    _attr_supported_features = conversation.ConversationEntityFeature.CONTROL
 
     def __init__(self, entry: ConfigEntry, hass: HomeAssistant) -> None:
         """Initialize the entity."""
@@ -59,7 +76,7 @@ class JarvisConversationEntity(conversation.ConversationEntity):
         self.hass = hass
         self._model = entry.data.get(CONF_MODEL, DEFAULT_MODEL)
         self._attr_unique_id = entry.entry_id
-        self._conversation_history: dict[str, list[dict[str, str]]] = {}
+        self._conversation_history: dict[str, list[dict[str, Any]]] = {}
 
     async def async_added_to_hass(self) -> None:
         """Register as a conversation agent when added to HA."""
@@ -135,16 +152,38 @@ class JarvisConversationEntity(conversation.ConversationEntity):
                  "fallback": "ollama"},
             )
 
-        # Step 2: Fall back to Ollama LLM
-        messages = self._build_messages(conversation_id, user_input.text)
+        # Step 2: Fall back to Ollama LLM with HA tool support
+        llm_api: llm.APIInstance | None = None
+        try:
+            llm_api = await llm.async_get_api(
+                self.hass,
+                LLM_API_ID,
+                user_input.as_llm_context(DOMAIN),
+            )
+        except Exception as err:
+            _LOGGER.warning("Could not load LLM API tools: %s", err)
+
+        # Build tools list from HA's LLM API
+        tools: list[dict[str, Any]] | None = None
+        if llm_api and llm_api.tools:
+            tools = [_format_tool(tool) for tool in llm_api.tools]
+
+        # Build system prompt - combine our prompt with the LLM API prompt
+        system_prompt = self._system_prompt
+        if llm_api and llm_api.api_prompt:
+            system_prompt = f"{system_prompt}\n\n{llm_api.api_prompt}"
+
+        messages = self._build_messages(conversation_id, user_input.text, system_prompt)
 
         trace.async_conversation_trace_append(
             trace.ConversationTraceEventType.AGENT_DETAIL,
-            {"messages": messages, "model": self._model},
+            {"messages": messages, "model": self._model, "tools_available": bool(tools)},
         )
 
         try:
-            response_text = await self._call_ollama(messages)
+            response_text = await self._call_ollama_with_tools(
+                messages, tools, llm_api, user_input
+            )
         except Exception as err:
             _LOGGER.error("Error calling Ollama: %s", err)
             intent_response = intent.IntentResponse(language=user_input.language)
@@ -220,12 +259,96 @@ class JarvisConversationEntity(conversation.ConversationEntity):
             )
             return None
 
+    async def _call_ollama_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        llm_api: llm.APIInstance | None,
+        user_input: conversation.ConversationInput,
+    ) -> str:
+        """Call Ollama with tool support, handling the tool-call loop."""
+        for _iteration in range(MAX_TOOL_ITERATIONS):
+            response = await self._call_ollama(messages, tools)
+
+            message = response.get("message", {})
+            tool_calls = message.get("tool_calls")
+
+            # If no tool calls, return the text response
+            if not tool_calls:
+                return message.get("content", "")
+
+            # Append the assistant's tool-call message to the conversation
+            messages.append(message)
+
+            # Execute each tool call and add results
+            for tool_call in tool_calls:
+                func = tool_call.get("function", {})
+                tool_name = func.get("name", "")
+                tool_args = func.get("arguments", {})
+
+                _LOGGER.debug(
+                    "Ollama tool call: %s(%s)", tool_name, tool_args
+                )
+
+                trace.async_conversation_trace_append(
+                    trace.ConversationTraceEventType.TOOL_CALL,
+                    {"tool_name": tool_name, "tool_args": tool_args},
+                )
+
+                tool_result = await self._execute_tool(
+                    tool_name, tool_args, llm_api, user_input
+                )
+
+                messages.append({
+                    "role": "tool",
+                    "content": json.dumps(tool_result),
+                })
+
+        # If we exhausted iterations, get a final response without tools
+        _LOGGER.warning("Max tool iterations (%s) reached", MAX_TOOL_ITERATIONS)
+        return await self._call_ollama_text_only(messages)
+
+    async def _execute_tool(
+        self,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        llm_api: llm.APIInstance | None,
+        user_input: conversation.ConversationInput,
+    ) -> dict[str, Any]:
+        """Execute a single HA tool call and return the result."""
+        if llm_api is None:
+            return {"error": "No LLM API available"}
+
+        # Find the tool
+        tool = next(
+            (t for t in llm_api.tools if t.name == tool_name),
+            None,
+        )
+        if tool is None:
+            return {"error": f"Unknown tool: {tool_name}"}
+
+        try:
+            tool_input = llm.ToolInput(
+                tool_name=tool_name,
+                tool_args=tool_args,
+            )
+            result = await tool.async_call(
+                self.hass,
+                tool_input,
+                llm_api.llm_context,
+            )
+            _LOGGER.debug("Tool %s result: %s", tool_name, result)
+            return result
+        except Exception as err:
+            _LOGGER.error("Error executing tool %s: %s", tool_name, err)
+            return {"error": str(err)}
+
     def _build_messages(
-        self, conversation_id: str, user_text: str
-    ) -> list[dict[str, str]]:
+        self, conversation_id: str, user_text: str, system_prompt: str
+    ) -> list[dict[str, Any]]:
         """Build the message list for Ollama."""
-        messages: list[dict[str, str]] = [
-            {"role": "system", "content": self._system_prompt}
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt}
         ]
 
         # Add conversation history
@@ -258,11 +381,15 @@ class JarvisConversationEntity(conversation.ConversationEntity):
                 self._conversation_history[conversation_id][-max_messages:]
             )
 
-    async def _call_ollama(self, messages: list[dict[str, str]]) -> str:
-        """Call the Ollama chat API."""
+    async def _call_ollama(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Call the Ollama chat API, returning the full response dict."""
         url = f"{self._base_url}{OLLAMA_CHAT_ENDPOINT}"
 
-        payload = {
+        payload: dict[str, Any] = {
             "model": self._model,
             "messages": messages,
             "stream": False,
@@ -272,6 +399,9 @@ class JarvisConversationEntity(conversation.ConversationEntity):
             },
             "keep_alive": self._keep_alive,
         }
+
+        if tools:
+            payload["tools"] = tools
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -284,5 +414,11 @@ class JarvisConversationEntity(conversation.ConversationEntity):
                     raise RuntimeError(
                         f"Ollama returned status {resp.status}: {error_text}"
                     )
-                data = await resp.json()
-                return data["message"]["content"]
+                return await resp.json()
+
+    async def _call_ollama_text_only(
+        self, messages: list[dict[str, Any]]
+    ) -> str:
+        """Call Ollama without tools to get a final text response."""
+        response = await self._call_ollama(messages, tools=None)
+        return response.get("message", {}).get("content", "")
