@@ -1,0 +1,221 @@
+version: "3.9"
+
+# ============================================================
+# Gateway Node — Mini PC
+# Network gateway, auth, DNS, Home Assistant, monitoring
+# ============================================================
+
+networks:
+  gateway:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  authentik_db:
+  authentik_redis:
+  redis_data:
+  homeassistant_config:
+  pihole_etc:
+  pihole_dnsmasq:
+  searxng_config:
+  uptime_kuma_data:
+
+services:
+  # ── Reverse Proxy ──────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - gateway
+    extra_hosts:
+      - "inference.home.local:${INFERENCE_IP}"
+      - "agent.home.local:${AGENT_IP}"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Authentication ─────────────────────────────────────────
+  authentik-db:
+    image: postgres:16-alpine
+    container_name: authentik-db
+    restart: always
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${AUTHENTIK_DB_PASSWORD}
+    volumes:
+      - authentik_db:/var/lib/postgresql/data
+    networks:
+      - gateway
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authentik"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  authentik-server:
+    image: goauthentik/server:latest
+    container_name: authentik
+    restart: unless-stopped
+    command: server
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9443:9443"
+    volumes:
+      - ./authentik/media:/media
+      - ./authentik/templates:/templates
+    networks:
+      - gateway
+    depends_on:
+      authentik-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  authentik-worker:
+    image: goauthentik/server:latest
+    container_name: authentik-worker
+    restart: unless-stopped
+    command: worker
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD}
+    networks:
+      - gateway
+    depends_on:
+      authentik-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Cache / Message Broker ─────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: always
+    command: redis-server --save 60 1 --loglevel warning --maxmemory 100mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - gateway
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Home Assistant ─────────────────────────────────────────
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    environment:
+      TZ: ${TIMEZONE}
+    volumes:
+      - homeassistant_config:/config
+      - /run/dbus:/run/dbus:ro
+    # Note: network_mode: host means no Docker network isolation
+    # HA needs host networking for mDNS device discovery
+
+  # ── DNS ────────────────────────────────────────────────────
+  pihole:
+    image: pihole/pihole:latest
+    container_name: pihole
+    restart: unless-stopped
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "8053:80/tcp"
+    environment:
+      TZ: ${TIMEZONE}
+      WEBPASSWORD: ${PIHOLE_PASSWORD}
+      PIHOLE_DNS_: "1.1.1.1;9.9.9.9"
+    volumes:
+      - pihole_etc:/etc/pihole
+      - pihole_dnsmasq:/etc/dnsmasq.d
+      - ./pihole/custom.list:/etc/pihole/custom.list:ro
+    networks:
+      - gateway
+    dns:
+      - 127.0.0.1
+      - 1.1.1.1
+    healthcheck:
+      test: ["CMD", "dig", "+short", "+time=2", "+tries=1", "@127.0.0.1", "pi.hole"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Metasearch ─────────────────────────────────────────────
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    volumes:
+      - searxng_config:/etc/searxng
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      SEARXNG_BASE_URL: https://search.${DOMAIN}
+    networks:
+      - gateway
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Monitoring ─────────────────────────────────────────────
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - uptime_kuma_data:/app/data
+    networks:
+      - gateway
+
+  # ── UPS Management ─────────────────────────────────────────
+  nut-upsd:
+    image: instantlinux/nut-upsd:latest
+    container_name: nut
+    restart: unless-stopped
+    ports:
+      - "3493:3493"
+    environment:
+      API_USER: ${NUT_USER}
+      API_PASSWORD: ${NUT_PASSWORD}
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    privileged: true
+    networks:
+      - gateway

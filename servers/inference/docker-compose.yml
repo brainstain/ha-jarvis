@@ -1,0 +1,191 @@
+version: "3.9"
+
+# ============================================================
+# Inference Engine — Power Server (RTX 3090)
+# Primary LLM, STT, TTS, Speaker ID, Wake Word
+# ============================================================
+
+networks:
+  inference:
+    driver: bridge
+
+volumes:
+  ollama_models:
+  whisper_cache:
+  speechbrain_data:
+  piper_voices:
+
+services:
+  # ── Primary LLM Inference ──────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-inference
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      OLLAMA_HOST: "0.0.0.0"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_KEEP_ALIVE: "-1"
+      OLLAMA_NUM_PARALLEL: "4"
+      OLLAMA_FLASH_ATTENTION: "1"
+      NVIDIA_VISIBLE_DEVICES: all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 32G
+    networks:
+      - inference
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # ── Speech-to-Text ─────────────────────────────────────────
+  faster-whisper:
+    image: fedirz/faster-whisper-server:latest-cuda
+    container_name: faster-whisper
+    restart: unless-stopped
+    ports:
+      - "8443:8000"
+    volumes:
+      - whisper_cache:/root/.cache
+    environment:
+      WHISPER__MODEL: "Systran/faster-whisper-large-v3-turbo"
+      WHISPER__DEVICE: "cuda"
+      WHISPER__COMPUTE_TYPE: "float16"
+      WHISPER__LANGUAGE: "en"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - inference
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── Text-to-Speech ─────────────────────────────────────────
+  piper-tts:
+    image: rhasspy/wyoming-piper:latest
+    container_name: piper-tts
+    restart: unless-stopped
+    ports:
+      - "10200:10200"
+    volumes:
+      - piper_voices:/data
+    command: >
+      --voice en_US-lessac-medium
+      --length-scale 1.0
+      --noise-scale 0.667
+      --noise-w 0.8
+      --uri tcp://0.0.0.0:10200
+      --download-dir /data
+    networks:
+      - inference
+    healthcheck:
+      test: ["CMD-SHELL", "echo | nc -w 2 localhost 10200 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ── Speaker Identification (Custom) ────────────────────────
+  speechbrain:
+    build:
+      context: ../../custom-software/speechbrain-speaker-id
+      dockerfile: Dockerfile
+    container_name: speechbrain
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+    volumes:
+      - speechbrain_data:/data/speakers
+    environment:
+      QDRANT_HOST: "agent.home.local"
+      QDRANT_PORT: "6333"
+      SIMILARITY_THRESHOLD: "0.7"
+      DEVICE: "cuda"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - inference
+    extra_hosts:
+      - "agent.home.local:${AGENT_IP}"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8200/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Wake Word Detection ────────────────────────────────────
+  openwakeword:
+    image: rhasspy/wyoming-openwakeword:latest
+    container_name: openwakeword
+    restart: unless-stopped
+    ports:
+      - "10400:10400"
+    command: >
+      --preload-model hey_jarvis
+      --threshold 0.5
+      --trigger-level 3
+      --uri tcp://0.0.0.0:10400
+    networks:
+      - inference
+    healthcheck:
+      test: ["CMD-SHELL", "echo | nc -w 2 localhost 10400 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Monitoring Exporters ───────────────────────────────────
+  nvidia-gpu-exporter:
+    image: utkuozdemir/nvidia_gpu_exporter:latest
+    container_name: nvidia-gpu-exporter
+    restart: unless-stopped
+    ports:
+      - "9835:9835"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - inference
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    command:
+      - '--path.rootfs=/host'
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - inference
