@@ -1,0 +1,308 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+  <defs>
+    <filter id="shadow" x="-2%" y="-2%" width="104%" height="104%">
+      <feDropShadow dx="1" dy="2" stdDeviation="3" flood-opacity="0.12"/>
+    </filter>
+    <linearGradient id="gw" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#e8f5e9"/><stop offset="100%" stop-color="#c8e6c9"/></linearGradient>
+    <linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#e3f2fd"/><stop offset="100%" stop-color="#bbdefb"/></linearGradient>
+    <linearGradient id="inf" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fce4ec"/><stop offset="100%" stop-color="#f8bbd0"/></linearGradient>
+    <linearGradient id="nas" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff3e0"/><stop offset="100%" stop-color="#ffe0b2"/></linearGradient>
+    <linearGradient id="ext" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f3e5f5"/><stop offset="100%" stop-color="#e1bee7"/></linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="900" fill="#fafafa" rx="8"/>
+  
+  <!-- Title -->
+  <text x="600" y="35" text-anchor="middle" font-size="18" font-weight="700" fill="#1a1a1a">Offline-First Home AI Agent — System Architecture v1.2</text>
+  <text x="600" y="54" text-anchor="middle" font-size="11" fill="#666">4-Node Proxmox Cluster · Qwen3-30B-A3B · LangGraph · MCP Protocol</text>
+
+  <!-- ═══ External Inputs (top) ═══ -->
+  <rect x="30" y="70" width="1140" height="75" rx="8" fill="url(#ext)" stroke="#ce93d8" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="50" y="90" font-size="11" font-weight="600" fill="#6a1b9a">EXTERNAL INPUTS</text>
+  
+  <!-- Voice satellites -->
+  <rect x="50" y="100" width="100" height="32" rx="5" fill="#fff" stroke="#ab47bc" stroke-width="1"/>
+  <text x="100" y="120" text-anchor="middle" font-size="9" fill="#333">🎤 ESP32</text>
+  <text x="100" y="130" text-anchor="middle" font-size="7" fill="#666">Voice Satellites</text>
+  
+  <rect x="170" y="100" width="100" height="32" rx="5" fill="#fff" stroke="#ab47bc" stroke-width="1"/>
+  <text x="220" y="120" text-anchor="middle" font-size="9" fill="#333">💬 Open WebUI</text>
+  <text x="220" y="130" text-anchor="middle" font-size="7" fill="#666">Chat Interface</text>
+
+  <rect x="290" y="100" width="100" height="32" rx="5" fill="#fff" stroke="#ab47bc" stroke-width="1"/>
+  <text x="340" y="120" text-anchor="middle" font-size="9" fill="#333">🏠 HA Dashboard</text>
+  <text x="340" y="130" text-anchor="middle" font-size="7" fill="#666">Automations</text>
+
+  <rect x="410" y="100" width="100" height="32" rx="5" fill="#fff" stroke="#ab47bc" stroke-width="1"/>
+  <text x="460" y="120" text-anchor="middle" font-size="9" fill="#333">📱 Phone Push</text>
+  <text x="460" y="130" text-anchor="middle" font-size="7" fill="#666">ntfy Notifications</text>
+
+  <rect x="530" y="100" width="100" height="32" rx="5" fill="#fff" stroke="#ab47bc" stroke-width="1"/>
+  <text x="580" y="120" text-anchor="middle" font-size="9" fill="#333">🌐 Internet</text>
+  <text x="580" y="130" text-anchor="middle" font-size="7" fill="#666">Web Search / APIs</text>
+  
+  <!-- Failover indicator -->
+  <rect x="900" y="100" width="250" height="32" rx="5" fill="#fff" stroke="#ab47bc" stroke-width="1"/>
+  <text x="1025" y="114" text-anchor="middle" font-size="8" font-weight="600" fill="#6a1b9a">INFERENCE FAILOVER CHAIN</text>
+  <text x="1025" y="127" text-anchor="middle" font-size="8" fill="#333">30B (3090) → 8B (1080Ti) → 3B (CPU)</text>
+
+  <!-- ═══ GATEWAY NODE ═══ -->
+  <rect x="30" y="165" width="270" height="340" rx="8" fill="url(#gw)" stroke="#66bb6a" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="45" y="185" font-size="12" font-weight="700" fill="#2e7d32">GATEWAY · Mini PC</text>
+  <text x="45" y="198" font-size="9" fill="#555">4C · 16 GB · 512 GB SSD · ~15W</text>
+  
+  <!-- Gateway services -->
+  <rect x="45" y="210" width="110" height="26" rx="4" fill="#fff" stroke="#81c784" stroke-width="1"/>
+  <text x="100" y="227" text-anchor="middle" font-size="9" fill="#333">Caddy (Proxy)</text>
+  
+  <rect x="165" y="210" width="120" height="26" rx="4" fill="#fff" stroke="#81c784" stroke-width="1"/>
+  <text x="225" y="227" text-anchor="middle" font-size="9" fill="#333">Authentik (SSO)</text>
+
+  <rect x="45" y="245" width="110" height="26" rx="4" fill="#fff" stroke="#81c784" stroke-width="1"/>
+  <text x="100" y="262" text-anchor="middle" font-size="9" fill="#333">Home Assistant</text>
+  
+  <rect x="165" y="245" width="120" height="26" rx="4" fill="#fff" stroke="#81c784" stroke-width="1"/>
+  <text x="225" y="262" text-anchor="middle" font-size="9" fill="#333">Pi-hole (DNS)</text>
+
+  <rect x="45" y="280" width="110" height="26" rx="4" fill="#fff" stroke="#81c784" stroke-width="1"/>
+  <text x="100" y="297" text-anchor="middle" font-size="9" fill="#333">Redis</text>
+
+  <rect x="165" y="280" width="120" height="26" rx="4" fill="#fff" stroke="#81c784" stroke-width="1"/>
+  <text x="225" y="297" text-anchor="middle" font-size="9" fill="#333">SearXNG</text>
+
+  <rect x="45" y="315" width="110" height="26" rx="4" fill="#fff" stroke="#81c784" stroke-width="1"/>
+  <text x="100" y="332" text-anchor="middle" font-size="9" fill="#333">Uptime Kuma</text>
+  
+  <rect x="165" y="315" width="120" height="26" rx="4" fill="#fff" stroke="#81c784" stroke-width="1"/>
+  <text x="225" y="332" text-anchor="middle" font-size="9" fill="#333">NUT (UPS)</text>
+
+  <!-- Gateway roles -->
+  <rect x="45" y="355" width="240" height="50" rx="4" fill="#e8f5e9" stroke="#a5d6a7" stroke-width="0.5"/>
+  <text x="55" y="370" font-size="8" font-weight="600" fill="#2e7d32">KEY ROLES</text>
+  <text x="55" y="382" font-size="8" fill="#444">• Network entry point (Caddy reverse proxy)</text>
+  <text x="55" y="393" font-size="8" fill="#444">• HA voice pipeline + Wyoming protocol</text>
+  <text x="55" y="404" font-size="8" fill="#444">• DNS for all internal services</text>
+
+  <!-- Voice pipeline labels -->
+  <rect x="45" y="415" width="240" height="45" rx="4" fill="#e8f5e9" stroke="#a5d6a7" stroke-width="0.5"/>
+  <text x="55" y="430" font-size="8" font-weight="600" fill="#2e7d32">HA FALLBACK CHAIN</text>
+  <text x="55" y="442" font-size="8" fill="#444">Agent Orchestrator → built-in HA intents</text>
+  <text x="55" y="453" font-size="8" fill="#444">Health-check automation switches on failure</text>
+
+  <!-- ═══ AGENT NODE ═══ -->
+  <rect x="320" y="165" width="340" height="510" rx="8" fill="url(#ag)" stroke="#42a5f5" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="335" y="185" font-size="12" font-weight="700" fill="#1565c0">AGENT NODE · Mid Server</text>
+  <text x="335" y="198" font-size="9" fill="#555">8C · 64 GB · GTX 1080 Ti (11 GB) · 3 TB</text>
+
+  <!-- Agent core services -->
+  <rect x="335" y="210" width="150" height="35" rx="4" fill="#1565c0" stroke="#0d47a1" stroke-width="1"/>
+  <text x="410" y="228" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Agent Orchestrator</text>
+  <text x="410" y="240" text-anchor="middle" font-size="7" fill="#bbdefb">LangGraph · FastAPI · MCP</text>
+
+  <rect x="495" y="210" width="150" height="35" rx="4" fill="#fff" stroke="#64b5f6" stroke-width="1"/>
+  <text x="570" y="228" text-anchor="middle" font-size="9" fill="#333">LiteLLM Proxy</text>
+  <text x="570" y="240" text-anchor="middle" font-size="7" fill="#666">Inference routing + failover</text>
+
+  <!-- Agent data layer -->
+  <rect x="335" y="255" width="150" height="26" rx="4" fill="#fff" stroke="#64b5f6" stroke-width="1"/>
+  <text x="410" y="272" text-anchor="middle" font-size="9" fill="#333">Qdrant (Vector DB)</text>
+
+  <rect x="495" y="255" width="150" height="26" rx="4" fill="#fff" stroke="#64b5f6" stroke-width="1"/>
+  <text x="570" y="272" text-anchor="middle" font-size="9" fill="#333">Ollama (1080 Ti)</text>
+
+  <rect x="335" y="290" width="150" height="26" rx="4" fill="#fff" stroke="#64b5f6" stroke-width="1"/>
+  <text x="410" y="307" text-anchor="middle" font-size="9" fill="#333">Open WebUI</text>
+
+  <rect x="495" y="290" width="150" height="26" rx="4" fill="#fff" stroke="#64b5f6" stroke-width="1"/>
+  <text x="570" y="307" text-anchor="middle" font-size="9" fill="#333">Celery Worker</text>
+
+  <rect x="335" y="325" width="150" height="26" rx="4" fill="#fff" stroke="#64b5f6" stroke-width="1"/>
+  <text x="410" y="342" text-anchor="middle" font-size="9" fill="#333">Perplexica</text>
+
+  <rect x="495" y="325" width="150" height="26" rx="4" fill="#fff" stroke="#64b5f6" stroke-width="1"/>
+  <text x="570" y="342" text-anchor="middle" font-size="9" fill="#333">Prometheus + Grafana</text>
+
+  <!-- MCP Servers block -->
+  <rect x="335" y="365" width="310" height="125" rx="5" fill="#e3f2fd" stroke="#90caf9" stroke-width="0.5"/>
+  <text x="345" y="380" font-size="9" font-weight="600" fill="#1565c0">MCP SERVER REGISTRY (max 7 tools per request)</text>
+  
+  <rect x="345" y="390" width="88" height="22" rx="3" fill="#fff" stroke="#90caf9" stroke-width="0.5"/>
+  <text x="389" y="404" text-anchor="middle" font-size="7" fill="#333">ha-mcp</text>
+  <rect x="440" y="390" width="88" height="22" rx="3" fill="#42a5f5" stroke="#1e88e5" stroke-width="0.5"/>
+  <text x="484" y="404" text-anchor="middle" font-size="7" fill="#fff">memory-scoped*</text>
+  <rect x="535" y="390" width="88" height="22" rx="3" fill="#42a5f5" stroke="#1e88e5" stroke-width="0.5"/>
+  <text x="579" y="404" text-anchor="middle" font-size="7" fill="#fff">notifications*</text>
+
+  <rect x="345" y="418" width="88" height="22" rx="3" fill="#42a5f5" stroke="#1e88e5" stroke-width="0.5"/>
+  <text x="389" y="432" text-anchor="middle" font-size="7" fill="#fff">calendar*</text>
+  <rect x="440" y="418" width="88" height="22" rx="3" fill="#42a5f5" stroke="#1e88e5" stroke-width="0.5"/>
+  <text x="484" y="432" text-anchor="middle" font-size="7" fill="#fff">shopping-list*</text>
+  <rect x="535" y="418" width="88" height="22" rx="3" fill="#42a5f5" stroke="#1e88e5" stroke-width="0.5"/>
+  <text x="579" y="432" text-anchor="middle" font-size="7" fill="#fff">routines*</text>
+
+  <rect x="345" y="446" width="88" height="22" rx="3" fill="#fff" stroke="#90caf9" stroke-width="0.5"/>
+  <text x="389" y="460" text-anchor="middle" font-size="7" fill="#333">filesystem</text>
+  <rect x="440" y="446" width="88" height="22" rx="3" fill="#fff" stroke="#90caf9" stroke-width="0.5"/>
+  <text x="484" y="460" text-anchor="middle" font-size="7" fill="#333">fetch</text>
+  <rect x="535" y="446" width="88" height="22" rx="3" fill="#42a5f5" stroke="#1e88e5" stroke-width="0.5"/>
+  <text x="579" y="460" text-anchor="middle" font-size="7" fill="#fff">workflow-status*</text>
+
+  <text x="345" y="482" font-size="7" fill="#1565c0">* = custom-built · white = third-party</text>
+
+  <!-- Agent workflow block -->
+  <rect x="335" y="500" width="310" height="90" rx="5" fill="#e3f2fd" stroke="#90caf9" stroke-width="0.5"/>
+  <text x="345" y="515" font-size="9" font-weight="600" fill="#1565c0">AGENT WORKFLOW ENGINE</text>
+  <text x="345" y="528" font-size="8" fill="#444">Meta-Router (4B) → Plan → Execute → Validate</text>
+  <text x="345" y="540" font-size="8" fill="#444">SQLite checkpointing · HITL interrupts</text>
+  <text x="345" y="552" font-size="8" fill="#444">Token budget: 50K · Max iterations: 15</text>
+  <text x="345" y="564" font-size="8" fill="#444">5-min voice session continuity</text>
+  
+  <!-- Memory states -->
+  <rect x="335" y="600" width="310" height="65" rx="5" fill="#e3f2fd" stroke="#90caf9" stroke-width="0.5"/>
+  <text x="345" y="615" font-size="9" font-weight="600" fill="#1565c0">MEMORY (Qdrant + Mem0)</text>
+  <text x="345" y="628" font-size="8" fill="#444">Family scope · Personal scope · Speaker-linked</text>
+  <text x="345" y="640" font-size="8" fill="#444">States: pending → confirmed · pattern → HA scene</text>
+  <text x="345" y="652" font-size="8" fill="#444">Doc refs → Paperless-NGX IDs</text>
+
+  <!-- ═══ INFERENCE NODE ═══ -->
+  <rect x="680" y="165" width="250" height="340" rx="8" fill="url(#inf)" stroke="#ef5350" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="695" y="185" font-size="12" font-weight="700" fill="#c62828">INFERENCE · Power Server</text>
+  <text x="695" y="198" font-size="9" fill="#555">16C · 64 GB · RTX 3090 (24 GB) · 2 TB RAID</text>
+
+  <rect x="695" y="210" width="220" height="35" rx="4" fill="#c62828" stroke="#b71c1c" stroke-width="1"/>
+  <text x="805" y="228" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Ollama (Primary)</text>
+  <text x="805" y="240" text-anchor="middle" font-size="7" fill="#ffcdd2">Qwen3-30B-A3B Q5_K_M · ~18 GB VRAM</text>
+
+  <rect x="695" y="255" width="220" height="26" rx="4" fill="#fff" stroke="#ef9a9a" stroke-width="1"/>
+  <text x="805" y="272" text-anchor="middle" font-size="9" fill="#333">faster-whisper (STT)</text>
+
+  <rect x="695" y="290" width="220" height="26" rx="4" fill="#fff" stroke="#ef9a9a" stroke-width="1"/>
+  <text x="805" y="307" text-anchor="middle" font-size="9" fill="#333">Piper TTS</text>
+
+  <rect x="695" y="325" width="220" height="26" rx="4" fill="#fff" stroke="#ef9a9a" stroke-width="1"/>
+  <text x="805" y="342" text-anchor="middle" font-size="9" fill="#333">SpeechBrain (Speaker ID)</text>
+
+  <rect x="695" y="360" width="220" height="26" rx="4" fill="#fff" stroke="#ef9a9a" stroke-width="1"/>
+  <text x="805" y="377" text-anchor="middle" font-size="9" fill="#333">openWakeWord</text>
+
+  <!-- VRAM budget -->
+  <rect x="695" y="400" width="220" height="60" rx="4" fill="#fce4ec" stroke="#ef9a9a" stroke-width="0.5"/>
+  <text x="705" y="415" font-size="8" font-weight="600" fill="#c62828">VRAM BUDGET (24 GB)</text>
+  <text x="705" y="427" font-size="8" fill="#444">Qwen3-30B: ~18 GB</text>
+  <text x="705" y="439" font-size="8" fill="#444">faster-whisper: ~3 GB</text>
+  <text x="705" y="451" font-size="8" fill="#444">SpeechBrain: ~1 GB  →  22/24 GB used</text>
+
+  <rect x="695" y="468" width="220" height="28" rx="4" fill="#fce4ec" stroke="#ef9a9a" stroke-width="0.5"/>
+  <text x="705" y="480" font-size="8" font-weight="600" fill="#c62828">KEEP_ALIVE=-1 · MAX_LOADED=1</text>
+  <text x="705" y="490" font-size="8" fill="#444">Daily restart cron for OOM prevention</text>
+
+  <!-- ═══ NAS NODE ═══ -->
+  <rect x="950" y="165" width="220" height="225" rx="8" fill="url(#nas)" stroke="#ffa726" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="965" y="185" font-size="12" font-weight="700" fill="#e65100">NAS · Synology</text>
+  <text x="965" y="198" font-size="9" fill="#555">16 TB · NFS/SMB</text>
+
+  <rect x="965" y="210" width="190" height="26" rx="4" fill="#fff" stroke="#ffcc80" stroke-width="1"/>
+  <text x="1060" y="227" text-anchor="middle" font-size="9" fill="#333">Paperless-NGX</text>
+
+  <rect x="965" y="245" width="190" height="26" rx="4" fill="#fff" stroke="#ffcc80" stroke-width="1"/>
+  <text x="1060" y="262" text-anchor="middle" font-size="9" fill="#333">Paperless-AI (RAG)</text>
+
+  <rect x="965" y="280" width="190" height="26" rx="4" fill="#fff" stroke="#ffcc80" stroke-width="1"/>
+  <text x="1060" y="297" text-anchor="middle" font-size="9" fill="#333">Document Storage</text>
+
+  <rect x="965" y="315" width="190" height="26" rx="4" fill="#fff" stroke="#ffcc80" stroke-width="1"/>
+  <text x="1060" y="332" text-anchor="middle" font-size="9" fill="#333">Backup Target (Restic)</text>
+
+  <rect x="965" y="350" width="190" height="28" rx="4" fill="#fff3e0" stroke="#ffcc80" stroke-width="0.5"/>
+  <text x="975" y="362" font-size="8" font-weight="600" fill="#e65100">⚠ NFS: soft,intr,timeo=10</text>
+  <text x="975" y="373" font-size="8" fill="#444">Models on local NVMe, not NAS</text>
+
+  <!-- ═══ Connection Lines ═══ -->
+  <!-- Voice: satellites → Gateway (HA) → Inference (STT) → Agent (Orchestrator) → Inference (TTS) → Gateway (HA) → satellites -->
+  <line x1="100" y1="132" x2="100" y2="210" stroke="#ab47bc" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <line x1="220" y1="132" x2="410" y2="210" stroke="#ab47bc" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+  <!-- Gateway ↔ Agent -->
+  <line x1="300" y1="258" x2="335" y2="228" stroke="#333" stroke-width="1.5"/>
+  <text x="305" y="240" font-size="7" fill="#666">HA→Agent</text>
+
+  <!-- Gateway Redis → Agent Celery -->
+  <line x1="300" y1="293" x2="335" y2="303" stroke="#333" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="302" y="308" font-size="6" fill="#888">Redis</text>
+
+  <!-- Agent LiteLLM → Inference Ollama -->
+  <line x1="645" y1="228" x2="695" y2="228" stroke="#c62828" stroke-width="2"/>
+  <text x="655" y="222" font-size="7" fill="#c62828">LLM</text>
+
+  <!-- Agent LiteLLM → Agent Ollama (fallback) -->
+  <path d="M 570 245 L 570 258" stroke="#42a5f5" stroke-width="1" stroke-dasharray="3,3"/>
+  
+  <!-- Agent → NAS -->
+  <line x1="645" y1="285" x2="965" y2="257" stroke="#333" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="800" y="267" font-size="7" fill="#666">RAG docs</text>
+
+  <!-- Agent → Gateway (SearXNG) -->
+  <line x1="335" y1="340" x2="285" y2="293" stroke="#333" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="295" y="325" font-size="6" fill="#888">Search</text>
+
+  <!-- ═══ Resilience Footer ═══ -->
+  <rect x="30" y="700" width="1140" height="90" rx="8" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="1" filter="url(#shadow)"/>
+  <text x="50" y="720" font-size="11" font-weight="700" fill="#333">RESILIENCE STACK</text>
+  
+  <rect x="50" y="730" width="155" height="50" rx="4" fill="#fff" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="60" y="745" font-size="8" font-weight="600" fill="#333">MONITORING</text>
+  <text x="60" y="757" font-size="7" fill="#666">Uptime Kuma (Gateway)</text>
+  <text x="60" y="767" font-size="7" fill="#666">Prometheus + Grafana (Agent)</text>
+  <text x="60" y="777" font-size="7" fill="#666">nvidia_gpu_exporter (both GPUs)</text>
+
+  <rect x="220" y="730" width="155" height="50" rx="4" fill="#fff" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="230" y="745" font-size="8" font-weight="600" fill="#333">BACKUPS</text>
+  <text x="230" y="757" font-size="7" fill="#666">Qdrant snapshots → NAS (daily)</text>
+  <text x="230" y="767" font-size="7" fill="#666">SQLite .backup → NAS (hourly)</text>
+  <text x="230" y="777" font-size="7" fill="#666">Restic → Backblaze B2 (weekly)</text>
+
+  <rect x="390" y="730" width="155" height="50" rx="4" fill="#fff" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="400" y="745" font-size="8" font-weight="600" fill="#333">FAILOVER</text>
+  <text x="400" y="757" font-size="7" fill="#666">LiteLLM priority routing</text>
+  <text x="400" y="767" font-size="7" fill="#666">30B → 8B → 3B → HA intents</text>
+  <text x="400" y="777" font-size="7" fill="#666">HA health-check automation</text>
+
+  <rect x="560" y="730" width="155" height="50" rx="4" fill="#fff" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="570" y="745" font-size="8" font-weight="600" fill="#333">POWER</text>
+  <text x="570" y="757" font-size="7" fill="#666">UPS + NUT graceful shutdown</text>
+  <text x="570" y="767" font-size="7" fill="#666">ZFS checksums (data integrity)</text>
+  <text x="570" y="777" font-size="7" fill="#666">Proxmox QDevice (quorum)</text>
+
+  <rect x="730" y="730" width="155" height="50" rx="4" fill="#fff" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="740" y="745" font-size="8" font-weight="600" fill="#333">RECOVERY</text>
+  <text x="740" y="757" font-size="7" fill="#666">Docker unless-stopped + health</text>
+  <text x="740" y="767" font-size="7" fill="#666">Qdrant WAL replay (~seconds)</text>
+  <text x="740" y="777" font-size="7" fill="#666">LangGraph checkpoint resume</text>
+
+  <rect x="900" y="730" width="155" height="50" rx="4" fill="#fff" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="910" y="745" font-size="8" font-weight="600" fill="#333">OOM PREVENTION</text>
+  <text x="910" y="757" font-size="7" fill="#666">MAX_LOADED_MODELS=1 (3090)</text>
+  <text x="910" y="767" font-size="7" fill="#666">Docker memory limits</text>
+  <text x="910" y="777" font-size="7" fill="#666">Daily Ollama restart cron</text>
+
+  <!-- ═══ Phase indicator ═══ -->
+  <rect x="30" y="805" width="1140" height="80" rx="8" fill="#fff" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="50" y="825" font-size="11" font-weight="700" fill="#333">DEPLOYMENT PHASES</text>
+  
+  <rect x="50" y="835" width="250" height="38" rx="4" fill="#c8e6c9" stroke="#66bb6a" stroke-width="1"/>
+  <text x="60" y="850" font-size="8" font-weight="600" fill="#2e7d32">PHASE 1 (Week 1-2)</text>
+  <text x="60" y="863" font-size="7" fill="#333">Voice pipeline · Basic HA · DNS · Monitoring</text>
+
+  <rect x="315" y="835" width="250" height="38" rx="4" fill="#bbdefb" stroke="#42a5f5" stroke-width="1"/>
+  <text x="325" y="850" font-size="8" font-weight="600" fill="#1565c0">PHASE 2 (Week 3-5)</text>
+  <text x="325" y="863" font-size="7" fill="#333">Agent Orchestrator · Memory · LiteLLM · Speaker ID</text>
+
+  <rect x="580" y="835" width="250" height="38" rx="4" fill="#f8bbd0" stroke="#ef5350" stroke-width="1"/>
+  <text x="590" y="850" font-size="8" font-weight="600" fill="#c62828">PHASE 3 (Week 6-7)</text>
+  <text x="590" y="863" font-size="7" fill="#333">RAG pipeline · Research · Async tasks · HITL</text>
+
+  <rect x="845" y="835" width="250" height="38" rx="4" fill="#ffe0b2" stroke="#ffa726" stroke-width="1"/>
+  <text x="855" y="850" font-size="8" font-weight="600" fill="#e65100">PHASE 4 (Week 8-10)</text>
+  <text x="855" y="863" font-size="7" fill="#333">Full MCP suite · Routines · Browser · Polish</text>
+</svg>

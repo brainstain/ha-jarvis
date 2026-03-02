@@ -1,89 +1,92 @@
-# HA Jarvis
+# Offline-First Home AI Agent
 
-A Home Assistant custom conversation agent powered by [Ollama](https://ollama.com/) for fully local LLM-based voice and text interactions.
+A voice-first, offline-capable AI agent distributed across a 4-node Proxmox homelab cluster.
 
-## Features
+## Quick Start
 
-- **Intent-First Architecture**: Tries Home Assistant's built-in intent system first for fast, reliable device control ("turn on the lights"), then falls back to Ollama for everything else
-- **Fully Local**: All processing stays on your network - no cloud APIs needed
-- **Conversation Agent**: Integrates with Home Assistant's conversation pipeline for voice assistants
-- **Model Selection**: Choose from any model available on your Ollama server
-- **Conversation History**: Maintains context across multi-turn conversations
-- **Configurable**: Customize system prompt, temperature, top_p, and more via the UI
+```bash
+# 1. Copy and fill in environment variables
+cp .env.template .env
+nano .env
 
-## How It Works
+# 2. Deploy all nodes in dependency order
+./scripts/deploy.sh deploy
 
-When you say something to Jarvis, it follows this flow:
+# 3. Pull models onto GPU nodes
+./scripts/deploy.sh pull-models
 
-1. **Try HA first** (enabled by default): Your input is sent to Home Assistant's built-in DefaultAgent, which uses intent matching to handle device control commands like "turn on the kitchen lights", "set thermostat to 72", or "lock the front door"
-2. **Fall back to Ollama**: If the DefaultAgent doesn't match an intent (e.g., "what's a good recipe for pasta?"), the input is sent to your local Ollama LLM for a conversational response
+# 4. Check system health
+./scripts/deploy.sh status
+```
 
-This gives you the best of both worlds: fast, reliable device control through HA's native system, plus the intelligence of a local LLM for general conversation.
+## Repository Structure
 
-## Prerequisites
+```
+├── SYSTEM_SPEC.md                    # Master system specification
+├── ARCHITECTURE_DIAGRAM.svg          # Visual architecture diagram
+├── PROJECT_KNOWLEDGE.md              # Full context for Claude Project
+├── .env.template                     # Environment variables template
+│
+├── servers/
+│   ├── gateway/                      # Mini PC — DNS, HA, auth, proxy
+│   │   ├── SERVER_SPEC.md
+│   │   ├── docker-compose.yml
+│   │   └── caddy/Caddyfile
+│   ├── agent/                        # Mid Server — orchestrator, vector DB, UI
+│   │   ├── SERVER_SPEC.md
+│   │   └── docker-compose.yml
+│   ├── inference/                    # Power Server — LLM, STT, TTS
+│   │   ├── SERVER_SPEC.md
+│   │   └── docker-compose.yml
+│   └── nas/                          # Synology — documents, backups
+│       ├── SERVER_SPEC.md
+│       └── docker-compose.yml
+│
+├── custom-software/
+│   ├── agent-orchestrator/           # LangGraph + FastAPI agent core
+│   │   ├── SPEC.md
+│   │   ├── Dockerfile
+│   │   └── pyproject.toml
+│   └── mcp-servers/                  # Custom MCP server specifications
+│       └── SPEC.md
+│
+├── config/
+│   └── prometheus.yml                # Prometheus scrape configuration
+│
+└── scripts/
+    ├── deploy.sh                     # Master deployment script
+    └── backup-cron.sh                # Automated backup (cron)
+```
 
-- [Home Assistant](https://www.home-assistant.io/) 2024.1.0 or later
-- [Ollama](https://ollama.com/) running on your network with at least one model pulled
-- A machine with enough resources to run your chosen LLM (GPU recommended)
+## Architecture Overview
 
-## Installation
+```
+Voice Satellite → HA (Gateway) → Agent Orchestrator (Agent Node)
+                                      ↓
+                              LiteLLM Proxy → Ollama 3090 (Inference)
+                                      ↓              ↓ failover
+                              MCP Servers        Ollama 1080 Ti (Agent)
+                                      ↓
+                              Qdrant Memory + Paperless RAG (NAS)
+                                      ↓
+                              Response → Voice / Push / WebUI
+```
 
-### HACS (Recommended)
+## Deployment Phases
 
-1. Add this repository as a custom repository in HACS
-2. Search for "HA Jarvis" and install
-3. Restart Home Assistant
-4. Go to **Settings > Devices & Services > Add Integration** and search for "HA Jarvis"
+| Phase | Weeks | Focus |
+|-------|-------|-------|
+| 1 | 1-2 | Voice pipeline, basic HA, DNS, monitoring, resilience infra |
+| 2 | 3-5 | Agent Orchestrator, memory, LiteLLM, speaker ID |
+| 3 | 6-7 | RAG pipeline, web research, async tasks |
+| 4 | 8-10 | Full MCP suite, routines, browser automation, polish |
 
-### Manual
+## Custom Software To Build
 
-1. Copy `custom_components/ha_jarvis` to your Home Assistant `custom_components` directory
-2. Restart Home Assistant
-3. Go to **Settings > Devices & Services > Add Integration** and search for "HA Jarvis"
-
-## Configuration
-
-### Initial Setup
-
-1. Enter your Ollama server host and port (default: `localhost:11434`)
-2. Select a model from the list of available models on your Ollama server
-
-### Options
-
-After setup, you can configure these options:
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| Try HA First | Yes | Try Home Assistant's built-in intent matching before Ollama. Handles device control commands natively. |
-| System Prompt | JARVIS personality | The system prompt that defines the assistant's personality |
-| Max History | 10 | Number of conversation turns to keep in context |
-| Temperature | 0.7 | Controls randomness (0.0 = deterministic, 2.0 = very random) |
-| Top P | 0.9 | Nucleus sampling parameter |
-| Keep Alive | 5m | How long to keep the model loaded in memory |
-
-### Using as a Voice Assistant
-
-1. Go to **Settings > Voice Assistants**
-2. Create a new assistant or edit an existing one
-3. Set the **Conversation Agent** to "Jarvis"
-4. Optionally configure STT (Speech-to-Text) and TTS (Text-to-Speech) engines
-
-## Recommended Models
-
-| Model | Size | Best For |
-|-------|------|----------|
-| `llama3.1` | 8B | General purpose, good balance of speed and quality |
-| `mistral` | 7B | Fast responses, good for quick interactions |
-| `llama3.1:70b` | 70B | Highest quality, requires significant GPU memory |
-| `phi3` | 3.8B | Lightweight, fastest responses |
-
-## Troubleshooting
-
-- **Cannot connect**: Ensure Ollama is running (`ollama serve`) and accessible from your HA instance
-- **No models found**: Pull a model first: `ollama pull llama3.1`
-- **Slow responses**: Consider using a smaller model or adding GPU acceleration
-- **Timeout errors**: Increase the timeout or use a faster model
-
-## License
-
-MIT
+1. **Agent Orchestrator** — LangGraph + FastAPI + Celery (Phase 2)
+2. **mcp-memory-scoped** — Dual-mode Qdrant+Mem0 memory (Phase 2)
+3. **mcp-notifications** — Multi-channel output routing (Phase 2)
+4. **mcp-calendar** — CalDAV integration (Phase 4)
+5. **mcp-shopping-list** — HA shopping list wrapper (Phase 4)
+6. **mcp-routines** — User-defined automation routines (Phase 4)
+7. **mcp-workflow-status** — Async workflow management (Phase 3)

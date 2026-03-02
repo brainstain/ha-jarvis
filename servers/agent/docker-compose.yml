@@ -1,0 +1,305 @@
+version: "3.9"
+
+# ============================================================
+# Agent & Worker Node — Mid Server (GTX 1080 Ti)
+# Agent orchestration, vector DB, chat UI, monitoring
+# ============================================================
+
+networks:
+  agent:
+    driver: bridge
+
+volumes:
+  qdrant_data:
+  langgraph_data:
+  openwebui_data:
+  ollama_models:
+  prometheus_data:
+  grafana_data:
+  perplexica_data:
+
+services:
+  # ── Inference Proxy ────────────────────────────────────────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./config/litellm_config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      LITELLM_LOG: INFO
+    networks:
+      - agent
+    extra_hosts:
+      - "inference.home.local:${INFERENCE_IP}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Secondary Inference (1080 Ti) ──────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-agent
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      OLLAMA_HOST: "0.0.0.0"
+      OLLAMA_MAX_LOADED_MODELS: "2"
+      OLLAMA_KEEP_ALIVE: "24h"
+      OLLAMA_NUM_PARALLEL: "2"
+      NVIDIA_VISIBLE_DEVICES: all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 16G
+    networks:
+      - agent
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  ollama-metrics:
+    image: ghcr.io/norskhelsenett/ollama-metrics:latest
+    container_name: ollama-metrics
+    restart: unless-stopped
+    ports:
+      - "9091:9091"
+    environment:
+      OLLAMA_URL: "http://ollama:11434"
+    networks:
+      - agent
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  # ── Vector Database ────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: always
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - ./config/qdrant_config.yaml:/qdrant/config/production.yaml:ro
+    environment:
+      QDRANT_ALLOW_RECOVERY_MODE: "true"
+    networks:
+      - agent
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Agent Orchestrator (Custom) ────────────────────────────
+  agent-orchestrator:
+    build:
+      context: ../../custom-software/agent-orchestrator
+      dockerfile: Dockerfile
+    container_name: agent-orchestrator
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    volumes:
+      - langgraph_data:/data/langgraph
+      - ./config/mcp_servers.json:/app/config/mcp_servers.json:ro
+    environment:
+      LITELLM_BASE_URL: "http://litellm:4000/v1"
+      LITELLM_MODEL: "assistant"
+      ROUTER_MODEL: "assistant-fast"
+      EMBEDDINGS_MODEL: "embeddings"
+      QDRANT_HOST: "qdrant"
+      QDRANT_PORT: "6333"
+      REDIS_URL: "redis://gateway.home.local:6379/0"
+      LANGGRAPH_DB: "/data/langgraph/checkpoints.db"
+      SESSION_TIMEOUT_SECONDS: "300"
+      MAX_ITERATIONS: "15"
+      MAX_EXECUTION_TIME: "120"
+      TOKEN_BUDGET: "50000"
+      LOG_LEVEL: "INFO"
+    networks:
+      - agent
+    extra_hosts:
+      - "gateway.home.local:${GATEWAY_IP}"
+      - "inference.home.local:${INFERENCE_IP}"
+      - "nas.home.local:${NAS_IP}"
+    depends_on:
+      litellm:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Async Task Worker ──────────────────────────────────────
+  celery-worker:
+    build:
+      context: ../../custom-software/agent-orchestrator
+      dockerfile: Dockerfile
+    container_name: celery-worker
+    restart: unless-stopped
+    command: ["celery", "-A", "agent.tasks", "worker", "--loglevel=info", "--concurrency=2"]
+    volumes:
+      - langgraph_data:/data/langgraph
+    environment:
+      LITELLM_BASE_URL: "http://litellm:4000/v1"
+      LITELLM_MODEL: "assistant"
+      QDRANT_HOST: "qdrant"
+      QDRANT_PORT: "6333"
+      REDIS_URL: "redis://gateway.home.local:6379/0"
+      LANGGRAPH_DB: "/data/langgraph/checkpoints.db"
+      MAX_EXECUTION_TIME: "600"
+      TOKEN_BUDGET: "100000"
+    networks:
+      - agent
+    extra_hosts:
+      - "gateway.home.local:${GATEWAY_IP}"
+      - "inference.home.local:${INFERENCE_IP}"
+      - "nas.home.local:${NAS_IP}"
+    depends_on:
+      litellm:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  # ── Chat Interface ─────────────────────────────────────────
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    volumes:
+      - openwebui_data:/app/backend/data
+    environment:
+      OPENAI_API_BASE_URL: "http://litellm:4000/v1"
+      OPENAI_API_KEY: "sk-placeholder"
+      WEBUI_AUTH: "false"
+      ENABLE_OLLAMA_API: "false"
+    networks:
+      - agent
+    depends_on:
+      litellm:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── AI Search ──────────────────────────────────────────────
+  perplexica-backend:
+    build:
+      context: ./perplexica
+      dockerfile: backend.dockerfile
+    container_name: perplexica-backend
+    restart: unless-stopped
+    ports:
+      - "3999:3001"
+    volumes:
+      - perplexica_data:/data
+      - ./config/perplexica_config.toml:/app/config.toml:ro
+    environment:
+      SEARXNG_URL: "http://gateway.home.local:8888"
+    networks:
+      - agent
+    extra_hosts:
+      - "gateway.home.local:${GATEWAY_IP}"
+
+  # ── Monitoring ─────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - agent
+    extra_hosts:
+      - "inference.home.local:${INFERENCE_IP}"
+      - "gateway.home.local:${GATEWAY_IP}"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3100:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_SERVER_ROOT_URL: "https://grafana.${DOMAIN}"
+    networks:
+      - agent
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
+  nvidia-gpu-exporter:
+    image: utkuozdemir/nvidia_gpu_exporter:latest
+    container_name: nvidia-gpu-exporter
+    restart: unless-stopped
+    ports:
+      - "9835:9835"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - agent
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    command:
+      - '--path.rootfs=/host'
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - agent
