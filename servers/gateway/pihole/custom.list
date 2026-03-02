@@ -1,0 +1,15 @@
+# ============================================================
+# Pi-hole Custom DNS Records
+# Maps internal hostnames to LAN IPs
+#
+# IMPORTANT: Replace the placeholder IPs below with your
+# actual node IPs, or run: scripts/generate-pihole-dns.sh
+#
+# Format: <IP> <hostname>
+# ============================================================
+
+# ── Node hostnames ─────────────────────────────────────────
+192.168.1.10 gateway.home.local
+192.168.1.11 agent.home.local
+192.168.1.12 inference.home.local
+192.168.1.13 nas.home.local

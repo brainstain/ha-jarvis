@@ -20,7 +20,12 @@ from custom_components.ha_jarvis.const import (
     MAX_TOOL_ITERATIONS,
 )
 
-from .conftest import make_ollama_response, make_tool_call
+from .conftest import (
+    make_ollama_response,
+    make_openai_response,
+    make_openai_tool_call,
+    make_tool_call,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +68,7 @@ class _FakeSession:
         self._call_index = 0
         self._capture = capture
 
-    def post(self, url, *, json=None, timeout=None):
+    def post(self, url, *, json=None, headers=None, timeout=None):
         if self._capture is not None:
             self._capture.append(json)
         idx = min(self._call_index, len(self._responses) - 1)
@@ -85,7 +90,7 @@ class _FakeErrorSession:
         self._status = status
         self._text = text
 
-    def post(self, url, *, json=None, timeout=None):
+    def post(self, url, *, json=None, headers=None, timeout=None):
         resp = _FakeResponse({}, status=self._status)
         resp._text = self._text
 
@@ -698,3 +703,334 @@ class TestCallOllama:
         with patch_aiohttp([], error_status=503, error_text="Service Unavailable"):
             with pytest.raises(RuntimeError, match="Ollama returned status 503"):
                 await entity._call_ollama([{"role": "user", "content": "hi"}])
+
+
+# ===================================================================
+# Fixtures: OpenAI backend
+# ===================================================================
+
+
+@pytest.fixture
+def openai_entity(mock_hass, mock_openai_config_entry):
+    """Create a JarvisConversationEntity configured for the OpenAI backend."""
+    return JarvisConversationEntity(mock_openai_config_entry, mock_hass)
+
+
+# ===================================================================
+# Tests: OpenAI-compatible conversation (no tool calls)
+# ===================================================================
+
+
+class TestOpenAIConversation:
+    """Tests for simple text-only OpenAI-compatible responses."""
+
+    @pytest.mark.asyncio
+    async def test_simple_response(self, openai_entity, mock_user_input, mock_chat_log, patch_aiohttp):
+        """OpenAI backend returns a plain text response."""
+        mock_user_input.text = "What is the weather like?"
+        openai_entity.entry.options["try_ha_first"] = False
+
+        openai_resp = make_openai_response("It looks sunny outside!")
+
+        with patch_aiohttp([openai_resp]), \
+             patch("custom_components.ha_jarvis.conversation.llm") as mock_llm:
+            mock_llm.async_get_api = AsyncMock(return_value=None)
+            result = await openai_entity._async_handle_message(mock_user_input, mock_chat_log)
+
+        result.response.async_set_speech.assert_called_once_with("It looks sunny outside!")
+
+    @pytest.mark.asyncio
+    async def test_conversation_history_stored(self, openai_entity, mock_user_input, mock_chat_log, patch_aiohttp):
+        """After an OpenAI response, history should contain the user+assistant exchange."""
+        mock_user_input.text = "Tell me a joke"
+        mock_user_input.conversation_id = "conv-openai-1"
+        openai_entity.entry.options["try_ha_first"] = False
+
+        openai_resp = make_openai_response("Why did the chicken cross the road?")
+
+        with patch_aiohttp([openai_resp]), \
+             patch("custom_components.ha_jarvis.conversation.llm") as mock_llm:
+            mock_llm.async_get_api = AsyncMock(return_value=None)
+            await openai_entity._async_handle_message(mock_user_input, mock_chat_log)
+
+        history = openai_entity._conversation_history.get("conv-openai-1", [])
+        assert len(history) == 2
+        assert history[0] == {"role": "user", "content": "Tell me a joke"}
+        assert history[1] == {"role": "assistant", "content": "Why did the chicken cross the road?"}
+
+    @pytest.mark.asyncio
+    async def test_openai_payload_structure(self, openai_entity, mock_user_input, mock_chat_log, patch_aiohttp):
+        """Verify the OpenAI API payload has model, temperature, top_p, and no keep_alive."""
+        openai_entity.entry.options["try_ha_first"] = False
+
+        openai_resp = make_openai_response("ok")
+
+        with patch_aiohttp([openai_resp]) as captured, \
+             patch("custom_components.ha_jarvis.conversation.llm") as mock_llm:
+            mock_llm.async_get_api = AsyncMock(return_value=None)
+            await openai_entity._async_handle_message(mock_user_input, mock_chat_log)
+
+        assert len(captured) == 1
+        payload = captured[0]
+        assert payload["model"] == "assistant"
+        assert payload["stream"] is False
+        assert payload["temperature"] == DEFAULT_TEMPERATURE
+        assert payload["top_p"] == DEFAULT_TOP_P
+        assert "keep_alive" not in payload
+        assert "options" not in payload
+        assert "tools" not in payload
+
+    @pytest.mark.asyncio
+    async def test_openai_error_returns_error_result(self, openai_entity, mock_user_input, mock_chat_log, patch_aiohttp):
+        """When OpenAI returns an HTTP error, an error ConversationResult is returned."""
+        openai_entity.entry.options["try_ha_first"] = False
+
+        with patch_aiohttp([], error_status=500, error_text="Internal Server Error"), \
+             patch("custom_components.ha_jarvis.conversation.llm") as mock_llm:
+            mock_llm.async_get_api = AsyncMock(return_value=None)
+            result = await openai_entity._async_handle_message(mock_user_input, mock_chat_log)
+
+        result.response.async_set_error.assert_called_once()
+
+
+# ===================================================================
+# Tests: OpenAI tool-call scenarios
+# ===================================================================
+
+
+class TestOpenAIToolCalling:
+    """Tests for OpenAI-compatible tool-calling with HA intents."""
+
+    def _make_mock_llm_api(self, tools: list | None = None):
+        """Create a mock LLM API instance with tools."""
+        api = MagicMock()
+        api.tools = tools or []
+        api.api_prompt = "You can control smart home devices."
+        api.llm_context = MagicMock()
+        return api
+
+    def _make_mock_tool(self, name: str, description: str = "", result: dict | None = None):
+        """Create a mock HA LLM tool."""
+        tool = MagicMock()
+        tool.name = name
+        tool.description = description
+        tool.parameters = {"type": "object", "properties": {"name": {"type": "string"}}}
+        tool.async_call = AsyncMock(return_value=result or {"success": True})
+        return tool
+
+    @pytest.mark.asyncio
+    async def test_single_tool_call(self, openai_entity, mock_user_input, mock_chat_log, patch_aiohttp):
+        """OpenAI calls HassTurnOn with tool_call_id round-trip."""
+        openai_entity.entry.options["try_ha_first"] = False
+        mock_user_input.text = "Turn on the kitchen lights"
+
+        tool = self._make_mock_tool(
+            "HassTurnOn", "Turn on a device",
+            result={"speech": {"plain": {"speech": "Turned on kitchen lights"}}},
+        )
+        llm_api = self._make_mock_llm_api(tools=[tool])
+
+        resp1 = make_openai_response(
+            "",
+            tool_calls=[make_openai_tool_call("HassTurnOn", {"name": "kitchen lights"}, "call_abc")]
+        )
+        resp2 = make_openai_response("Done! I've turned on the kitchen lights.")
+
+        with patch_aiohttp([resp1, resp2]) as captured, \
+             patch("custom_components.ha_jarvis.conversation.llm") as mock_llm:
+            mock_llm.async_get_api = AsyncMock(return_value=llm_api)
+            mock_llm.ToolInput = MagicMock
+            result = await openai_entity._async_handle_message(mock_user_input, mock_chat_log)
+
+        tool.async_call.assert_called_once()
+        result.response.async_set_speech.assert_called_once_with(
+            "Done! I've turned on the kitchen lights."
+        )
+
+        # Verify tool result message includes tool_call_id
+        assert len(captured) >= 2
+        tool_result_payload = captured[1]
+        tool_msgs = [m for m in tool_result_payload["messages"] if m.get("role") == "tool"]
+        assert len(tool_msgs) >= 1
+        assert tool_msgs[0]["tool_call_id"] == "call_abc"
+
+    @pytest.mark.asyncio
+    async def test_multiple_tool_calls_in_sequence(self, openai_entity, mock_user_input, mock_chat_log, patch_aiohttp):
+        """OpenAI makes two sequential tool calls across two iterations."""
+        openai_entity.entry.options["try_ha_first"] = False
+        mock_user_input.text = "Turn on living room and turn off kitchen"
+
+        tool_on = self._make_mock_tool("HassTurnOn", "Turn on", result={"success": True})
+        tool_off = self._make_mock_tool("HassTurnOff", "Turn off", result={"success": True})
+        llm_api = self._make_mock_llm_api(tools=[tool_on, tool_off])
+
+        resp1 = make_openai_response(
+            "", tool_calls=[make_openai_tool_call("HassTurnOn", {"name": "living room lights"}, "call_1")]
+        )
+        resp2 = make_openai_response(
+            "", tool_calls=[make_openai_tool_call("HassTurnOff", {"name": "kitchen lights"}, "call_2")]
+        )
+        resp3 = make_openai_response("All done! Living room is on, kitchen is off.")
+
+        with patch_aiohttp([resp1, resp2, resp3]), \
+             patch("custom_components.ha_jarvis.conversation.llm") as mock_llm:
+            mock_llm.async_get_api = AsyncMock(return_value=llm_api)
+            mock_llm.ToolInput = MagicMock
+            result = await openai_entity._async_handle_message(mock_user_input, mock_chat_log)
+
+        tool_on.async_call.assert_called_once()
+        tool_off.async_call.assert_called_once()
+        result.response.async_set_speech.assert_called_once_with(
+            "All done! Living room is on, kitchen is off."
+        )
+
+    @pytest.mark.asyncio
+    async def test_multiple_tool_calls_in_single_response(self, openai_entity, mock_user_input, mock_chat_log, patch_aiohttp):
+        """OpenAI returns two tool calls in a single response message."""
+        openai_entity.entry.options["try_ha_first"] = False
+        mock_user_input.text = "Turn on both lights"
+
+        tool = self._make_mock_tool("HassTurnOn", "Turn on", result={"success": True})
+        llm_api = self._make_mock_llm_api(tools=[tool])
+
+        resp1 = make_openai_response(
+            "",
+            tool_calls=[
+                make_openai_tool_call("HassTurnOn", {"name": "living room lights"}, "call_a"),
+                make_openai_tool_call("HassTurnOn", {"name": "bedroom lights"}, "call_b"),
+            ]
+        )
+        resp2 = make_openai_response("Both lights are now on!")
+
+        with patch_aiohttp([resp1, resp2]), \
+             patch("custom_components.ha_jarvis.conversation.llm") as mock_llm:
+            mock_llm.async_get_api = AsyncMock(return_value=llm_api)
+            mock_llm.ToolInput = MagicMock
+            result = await openai_entity._async_handle_message(mock_user_input, mock_chat_log)
+
+        assert tool.async_call.call_count == 2
+        result.response.async_set_speech.assert_called_once_with("Both lights are now on!")
+
+    @pytest.mark.asyncio
+    async def test_unknown_tool_returns_error(self, openai_entity, mock_user_input, mock_chat_log, patch_aiohttp):
+        """When OpenAI calls a tool that doesn't exist, an error is returned to the LLM."""
+        openai_entity.entry.options["try_ha_first"] = False
+
+        llm_api = self._make_mock_llm_api(tools=[])
+
+        resp1 = make_openai_response(
+            "", tool_calls=[make_openai_tool_call("NonExistentTool", {"name": "test"}, "call_err")]
+        )
+        resp2 = make_openai_response("I'm sorry, I couldn't do that.")
+
+        with patch_aiohttp([resp1, resp2]), \
+             patch("custom_components.ha_jarvis.conversation.llm") as mock_llm:
+            mock_llm.async_get_api = AsyncMock(return_value=llm_api)
+            mock_llm.ToolInput = MagicMock
+            result = await openai_entity._async_handle_message(mock_user_input, mock_chat_log)
+
+        result.response.async_set_speech.assert_called_once_with(
+            "I'm sorry, I couldn't do that."
+        )
+
+    @pytest.mark.asyncio
+    async def test_tool_execution_error_is_handled(self, openai_entity, mock_user_input, mock_chat_log, patch_aiohttp):
+        """When a tool raises an exception, the error is sent back to the LLM."""
+        openai_entity.entry.options["try_ha_first"] = False
+
+        tool = self._make_mock_tool("HassTurnOn", "Turn on")
+        tool.async_call = AsyncMock(side_effect=RuntimeError("Device unavailable"))
+        llm_api = self._make_mock_llm_api(tools=[tool])
+
+        resp1 = make_openai_response(
+            "", tool_calls=[make_openai_tool_call("HassTurnOn", {"name": "broken"}, "call_x")]
+        )
+        resp2 = make_openai_response("Sorry, the device seems to be unavailable.")
+
+        with patch_aiohttp([resp1, resp2]), \
+             patch("custom_components.ha_jarvis.conversation.llm") as mock_llm:
+            mock_llm.async_get_api = AsyncMock(return_value=llm_api)
+            mock_llm.ToolInput = MagicMock
+            result = await openai_entity._async_handle_message(mock_user_input, mock_chat_log)
+
+        result.response.async_set_speech.assert_called_once_with(
+            "Sorry, the device seems to be unavailable."
+        )
+
+    @pytest.mark.asyncio
+    async def test_max_tool_iterations_safety(self, openai_entity, mock_user_input, mock_chat_log, patch_aiohttp):
+        """If the LLM keeps calling tools beyond MAX_TOOL_ITERATIONS, we break out."""
+        openai_entity.entry.options["try_ha_first"] = False
+
+        tool = self._make_mock_tool("HassTurnOn", "Turn on", result={"success": True})
+        llm_api = self._make_mock_llm_api(tools=[tool])
+
+        infinite_tool_resp = make_openai_response(
+            "", tool_calls=[make_openai_tool_call("HassTurnOn", {"name": "light"}, "call_loop")]
+        )
+        final_resp = make_openai_response("I've been trying but something went wrong.")
+        responses = [infinite_tool_resp] * (MAX_TOOL_ITERATIONS + 1) + [final_resp]
+
+        with patch_aiohttp(responses), \
+             patch("custom_components.ha_jarvis.conversation.llm") as mock_llm:
+            mock_llm.async_get_api = AsyncMock(return_value=llm_api)
+            mock_llm.ToolInput = MagicMock
+            result = await openai_entity._async_handle_message(mock_user_input, mock_chat_log)
+
+        assert tool.async_call.call_count == MAX_TOOL_ITERATIONS
+        assert result is not None
+
+
+# ===================================================================
+# Tests: _call_openai directly
+# ===================================================================
+
+
+class TestCallOpenAI:
+    """Tests for the low-level _call_openai method."""
+
+    @pytest.mark.asyncio
+    async def test_call_openai_without_tools(self, openai_entity, patch_aiohttp):
+        """_call_openai without tools should not include tools key in payload."""
+        openai_resp = make_openai_response("hi")
+
+        with patch_aiohttp([openai_resp]) as captured:
+            result = await openai_entity._call_openai(
+                [{"role": "user", "content": "hi"}], tools=None
+            )
+
+        assert "tools" not in captured[0]
+        assert result["content"] == "hi"
+
+    @pytest.mark.asyncio
+    async def test_call_openai_with_tools(self, openai_entity, patch_aiohttp):
+        """_call_openai with tools should include them in payload."""
+        tools = [{"type": "function", "function": {"name": "test", "description": "", "parameters": {}}}]
+        openai_resp = make_openai_response("hi")
+
+        with patch_aiohttp([openai_resp]) as captured:
+            await openai_entity._call_openai(
+                [{"role": "user", "content": "hi"}], tools=tools
+            )
+
+        assert captured[0]["tools"] == tools
+
+    @pytest.mark.asyncio
+    async def test_call_openai_raises_on_http_error(self, openai_entity, patch_aiohttp):
+        """_call_openai should raise RuntimeError on non-200 status."""
+        with patch_aiohttp([], error_status=503, error_text="Service Unavailable"):
+            with pytest.raises(RuntimeError, match="OpenAI API returned status 503"):
+                await openai_entity._call_openai([{"role": "user", "content": "hi"}])
+
+    @pytest.mark.asyncio
+    async def test_call_openai_returns_message_dict(self, openai_entity, patch_aiohttp):
+        """_call_openai should return the message dict from choices[0]."""
+        openai_resp = make_openai_response("hello world")
+
+        with patch_aiohttp([openai_resp]):
+            result = await openai_entity._call_openai(
+                [{"role": "user", "content": "hi"}]
+            )
+
+        assert result["role"] == "assistant"
+        assert result["content"] == "hello world"

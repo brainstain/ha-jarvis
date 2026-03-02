@@ -4,6 +4,10 @@ version: "3.9"
 # Inference Engine — Power Server (RTX 3090)
 # Primary LLM, STT, TTS, Speaker ID, Wake Word
 # ============================================================
+#
+# Phase 1 (default):  ollama, faster-whisper, piper-tts, openwakeword, exporters
+# Phase 2 (--profile phase2):  + speechbrain
+#
 
 networks:
   inference:
@@ -105,13 +109,14 @@ services:
       retries: 3
       start_period: 15s
 
-  # ── Speaker Identification (Custom) ────────────────────────
+  # ── Speaker Identification (Phase 2) ───────────────────────
   speechbrain:
     build:
       context: ../../custom-software/speechbrain-speaker-id
       dockerfile: Dockerfile
     container_name: speechbrain
     restart: unless-stopped
+    profiles: [phase2]
     ports:
       - "8200:8200"
     volumes:

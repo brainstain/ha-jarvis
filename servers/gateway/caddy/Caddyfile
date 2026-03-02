@@ -39,9 +39,9 @@ auth.{$DOMAIN} {
 	reverse_proxy http://localhost:9000
 }
 
-# ── Paperless-NGX ────────────────────────────────────────────
+# ── Paperless-NGX (runs on Agent node) ───────────────────────
 docs.{$DOMAIN} {
-	reverse_proxy http://{$NAS_IP}:8000
+	reverse_proxy http://{$AGENT_IP}:8000
 }
 
 # ── Perplexica ───────────────────────────────────────────────

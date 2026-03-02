@@ -1,0 +1,13 @@
+# ============================================================
+# LiteLLM Health Check REST Command
+# Used by llm_health_check automation
+#
+# Add to configuration.yaml:
+#   rest_command: !include_dir_merge_named rest_commands/
+# ============================================================
+
+litellm_health:
+  url: "http://agent.home.local:4000/health"
+  method: GET
+  timeout: 10
+  content_type: "application/json"

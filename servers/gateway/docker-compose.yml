@@ -4,6 +4,11 @@ version: "3.9"
 # Gateway Node — Mini PC
 # Network gateway, auth, DNS, Home Assistant, monitoring
 # ============================================================
+#
+# Phase 1 (default):  caddy, redis, homeassistant, pihole, uptime-kuma, nut-upsd
+# Phase 2 (--profile phase2):  + authentik
+# Phase 3 (--profile phase3):  + searxng
+#
 
 networks:
   gateway:
@@ -45,11 +50,12 @@ services:
       timeout: 5s
       retries: 3
 
-  # ── Authentication ─────────────────────────────────────────
+  # ── Authentication (Phase 2) ──────────────────────────────
   authentik-db:
     image: postgres:16-alpine
     container_name: authentik-db
     restart: always
+    profiles: [phase2]
     environment:
       POSTGRES_DB: authentik
       POSTGRES_USER: authentik
@@ -69,6 +75,7 @@ services:
     image: goauthentik/server:latest
     container_name: authentik
     restart: unless-stopped
+    profiles: [phase2]
     command: server
     environment:
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
@@ -95,6 +102,7 @@ services:
     image: goauthentik/server:latest
     container_name: authentik-worker
     restart: unless-stopped
+    profiles: [phase2]
     command: worker
     environment:
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
@@ -172,11 +180,12 @@ services:
       timeout: 10s
       retries: 3
 
-  # ── Metasearch ─────────────────────────────────────────────
+  # ── Metasearch (Phase 3) ──────────────────────────────────
   searxng:
     image: searxng/searxng:latest
     container_name: searxng
     restart: unless-stopped
+    profiles: [phase3]
     ports:
       - "8888:8080"
     volumes:

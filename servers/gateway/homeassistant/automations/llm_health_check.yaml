@@ -1,0 +1,86 @@
+# ============================================================
+# LLM Health Check Automation (Gap 35)
+# Monitors LiteLLM availability and notifies on failure
+#
+# Copy into your HA config/automations/ directory
+# Requires: input_boolean.llm_available, rest_command.litellm_health
+# ============================================================
+
+- id: llm_health_check
+  alias: "LLM Health Monitor"
+  description: "Checks LiteLLM health every 60s, tracks failures, notifies on degradation"
+  mode: single
+
+  trigger:
+    - platform: time_pattern
+      seconds: "/60"
+
+  action:
+    - service: rest_command.litellm_health
+      response_variable: health_response
+
+    - choose:
+        # Health check succeeded — reset failure counter
+        - conditions:
+            - condition: template
+              value_template: "{{ health_response.status == 200 }}"
+          sequence:
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.llm_failure_count
+              data:
+                value: 0
+            - condition: state
+              entity_id: input_boolean.llm_available
+              state: "off"
+            - service: input_boolean.turn_on
+              target:
+                entity_id: input_boolean.llm_available
+            - service: persistent_notification.dismiss
+              data:
+                notification_id: llm_degraded
+
+        # Health check failed — increment counter
+        - conditions:
+            - condition: template
+              value_template: "{{ health_response.status != 200 }}"
+          sequence:
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.llm_failure_count
+              data:
+                value: >-
+                  {{ states('input_number.llm_failure_count') | int + 1 }}
+            # After 3 consecutive failures, mark as unavailable
+            - condition: numeric_state
+              entity_id: input_number.llm_failure_count
+              above: 2
+            - condition: state
+              entity_id: input_boolean.llm_available
+              state: "on"
+            - service: input_boolean.turn_off
+              target:
+                entity_id: input_boolean.llm_available
+            - service: persistent_notification.create
+              data:
+                notification_id: llm_degraded
+                title: "AI Assistant Degraded"
+                message: "LiteLLM has been unreachable for 3+ checks. Voice commands will use basic built-in matching only."
+
+# ── Required Helpers ─────────────────────────────────────────
+# Add to configuration.yaml:
+#
+# input_boolean:
+#   llm_available:
+#     name: LLM Available
+#     initial: true
+#     icon: mdi:robot
+#
+# input_number:
+#   llm_failure_count:
+#     name: LLM Failure Count
+#     initial: 0
+#     min: 0
+#     max: 100
+#     step: 1
+#     mode: box
