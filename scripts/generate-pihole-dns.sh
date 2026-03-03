@@ -23,7 +23,7 @@ source "$ENV_FILE"
 set +a
 
 # Validate required variables
-for var in GATEWAY_IP AGENT_IP INFERENCE_IP NAS_IP; do
+for var in GATEWAY_IP AGENT_IP INFERENCE_IP NAS_IP TRAEFIK_IP DOMAIN; do
     if [[ -z "${!var:-}" ]]; then
         echo "ERROR: ${var} is not set in .env"
         exit 1
@@ -42,6 +42,18 @@ ${GATEWAY_IP} gateway.home.local
 ${AGENT_IP} agent.home.local
 ${INFERENCE_IP} inference.home.local
 ${NAS_IP} nas.home.local
+
+# ── Service subdomains (resolve to external Traefik host) ──
+${TRAEFIK_IP} ha.${DOMAIN}
+${TRAEFIK_IP} status.${DOMAIN}
+${TRAEFIK_IP} pihole.${DOMAIN}
+${TRAEFIK_IP} grafana.${DOMAIN}
+${TRAEFIK_IP} auth.${DOMAIN}
+${TRAEFIK_IP} chat.${DOMAIN}
+${TRAEFIK_IP} agent.${DOMAIN}
+${TRAEFIK_IP} search.${DOMAIN}
+${TRAEFIK_IP} docs.${DOMAIN}
+${TRAEFIK_IP} research.${DOMAIN}
 EOF
 
 echo "Generated ${OUTPUT} with IPs from .env"

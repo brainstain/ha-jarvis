@@ -29,13 +29,15 @@ A voice-first, offline-capable AI agent distributed across a 4-node Proxmox home
 
 ### 1.3 Network Topology
 
-All nodes on the same VLAN. Services communicate via hostname DNS (Pi-hole/CoreDNS on Gateway). External access through Caddy reverse proxy with Authentik SSO.
+All nodes on the same VLAN. Services communicate via hostname DNS (Pi-hole/CoreDNS on Gateway). External access through Traefik reverse proxy (running on a separate host) with Authentik SSO.
 
 ```
 Internet
     │
     ▼
-[Gateway: Mini PC] ── Caddy → Authentik SSO
+[Traefik: External Host] ── Authentik SSO (Gateway)
+    │
+[Gateway: Mini PC] ── HA, DNS, Redis, Monitoring
     │
     ├──── [Agent: Mid Server] ── Agent Orchestrator, Open WebUI, Qdrant, Perplexica
     │
@@ -51,7 +53,6 @@ Internet
 ### 2.1 Per-Server Service Map
 
 **Gateway (Mini PC)**
-- Caddy (reverse proxy, automatic HTTPS)
 - Authentik (SSO, user profiles, MFA)
 - Redis (caching, session management, task queue broker)
 - Home Assistant (core automation)
@@ -444,7 +445,7 @@ This enables:
 - Deploy faster-whisper + Piper TTS on Inference Engine
 - Configure HA Ollama conversation agent
 - Set up ESP32 voice satellites with microWakeWord
-- Deploy Caddy + Pi-hole on Gateway
+- Configure Traefik routes (external host) + Pi-hole on Gateway
 - Test: voice commands control lights, thermostat
 
 ### Phase 2: Agent Orchestrator + Memory (Week 3-5)

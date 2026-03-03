@@ -28,19 +28,18 @@ nano .env
 ├── .env.template                     # Environment variables template
 │
 ├── servers/
-│   ├── gateway/                      # Mini PC — DNS, HA, auth, proxy
+│   ├── gateway/                      # Mini PC — DNS, HA, auth, monitoring
 │   │   ├── SERVER_SPEC.md
 │   │   ├── docker-compose.yml
-│   │   └── caddy/Caddyfile
+│   │   └── traefik/dynamic.yml       # Reference config for external Traefik
 │   ├── agent/                        # Mid Server — orchestrator, vector DB, UI
 │   │   ├── SERVER_SPEC.md
 │   │   └── docker-compose.yml
 │   ├── inference/                    # Power Server — LLM, STT, TTS
 │   │   ├── SERVER_SPEC.md
 │   │   └── docker-compose.yml
-│   └── nas/                          # Synology — documents, backups
-│       ├── SERVER_SPEC.md
-│       └── docker-compose.yml
+│   └── nas/                          # Synology — storage only (NFS/SMB)
+│       └── SERVER_SPEC.md
 │
 ├── custom-software/
 │   ├── agent-orchestrator/           # LangGraph + FastAPI agent core

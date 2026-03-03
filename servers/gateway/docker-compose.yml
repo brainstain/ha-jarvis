@@ -5,7 +5,8 @@ version: "3.9"
 # Network gateway, auth, DNS, Home Assistant, monitoring
 # ============================================================
 #
-# Phase 1 (default):  caddy, redis, homeassistant, pihole, uptime-kuma, nut-upsd
+# Phase 1 (default):  redis, homeassistant, pihole, uptime-kuma, nut-upsd
+# Note: Reverse proxy (Traefik) runs on a separate host — not managed here
 # Phase 2 (--profile phase2):  + authentik
 # Phase 3 (--profile phase3):  + searxng
 #
@@ -15,8 +16,6 @@ networks:
     driver: bridge
 
 volumes:
-  caddy_data:
-  caddy_config:
   authentik_db:
   authentik_redis:
   redis_data:
@@ -27,29 +26,6 @@ volumes:
   uptime_kuma_data:
 
 services:
-  # ── Reverse Proxy ──────────────────────────────────────────
-  caddy:
-    image: caddy:2-alpine
-    container_name: caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - gateway
-    extra_hosts:
-      - "inference.home.local:${INFERENCE_IP}"
-      - "agent.home.local:${AGENT_IP}"
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
   # ── Authentication (Phase 2) ──────────────────────────────
   authentik-db:
     image: postgres:16-alpine

@@ -191,7 +191,7 @@ Gaps identified through 12 use-case simulations including multi-step execution a
 ### Configuration
 - `config/prometheus.yml` — Prometheus scrape config
 - `config/litellm_config.yaml` — LiteLLM routing (referenced in system spec)
-- `servers/gateway/caddy/Caddyfile` — Reverse proxy routes
+- `servers/gateway/traefik/dynamic.yml` — Traefik route reference config (for external Traefik host)
 - `.env.template` — Environment variables template
 
 ### Scripts
