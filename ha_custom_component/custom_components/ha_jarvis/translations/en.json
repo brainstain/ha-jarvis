@@ -2,23 +2,32 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to Ollama",
-        "description": "Enter the connection details for your Ollama server.",
+        "title": "Connect to LLM Backend",
+        "description": "Choose the API type and enter connection details.",
         "data": {
+          "api_type": "API Type",
           "host": "Host",
           "port": "Port"
         }
       },
       "model": {
-        "title": "Select Model",
+        "title": "Select Ollama Model",
         "description": "Choose which Ollama model to use for conversations.",
         "data": {
           "model": "Model"
         }
+      },
+      "openai_model": {
+        "title": "Configure OpenAI-Compatible Model",
+        "description": "Enter the model name and API key for your OpenAI-compatible endpoint (e.g., LiteLLM).",
+        "data": {
+          "model_name": "Model Name",
+          "api_key": "API Key"
+        }
       }
     },
     "error": {
-      "cannot_connect": "Cannot connect to Ollama server. Ensure it is running and accessible.",
+      "cannot_connect": "Cannot connect to the server. Ensure it is running and accessible.",
       "no_models": "No models found on the Ollama server. Pull a model first (e.g., `ollama pull llama3.1`)."
     }
   },

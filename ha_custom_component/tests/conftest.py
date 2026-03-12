@@ -123,10 +123,16 @@ sys.modules.update(_HA_MODULES)
 # Now we can safely import the component
 # ---------------------------------------------------------------------------
 from custom_components.ha_jarvis.const import (  # noqa: E402
+    CONF_API_KEY,
+    CONF_API_TYPE,
     CONF_MODEL,
+    CONF_MODEL_NAME,
+    DEFAULT_API_KEY,
+    DEFAULT_API_TYPE,
     DEFAULT_KEEP_ALIVE,
     DEFAULT_MAX_HISTORY,
     DEFAULT_MODEL,
+    DEFAULT_MODEL_NAME,
     DEFAULT_PROMPT,
     DEFAULT_TEMPERATURE,
     DEFAULT_TOP_P,
@@ -150,10 +156,10 @@ def mock_hass():
 
 @pytest.fixture
 def mock_config_entry():
-    """Create a mock config entry."""
+    """Create a mock config entry (Ollama backend by default)."""
     entry = MagicMock()
     entry.entry_id = "test-entry-id"
-    entry.data = {CONF_MODEL: DEFAULT_MODEL}
+    entry.data = {CONF_MODEL: DEFAULT_MODEL, CONF_API_TYPE: "ollama"}
     entry.options = {
         "prompt": DEFAULT_PROMPT,
         "max_history": DEFAULT_MAX_HISTORY,
@@ -161,6 +167,27 @@ def mock_config_entry():
         "top_p": DEFAULT_TOP_P,
         "keep_alive": DEFAULT_KEEP_ALIVE,
         "try_ha_first": DEFAULT_TRY_HA_FIRST,
+    }
+    return entry
+
+
+@pytest.fixture
+def mock_openai_config_entry():
+    """Create a mock config entry for OpenAI-compatible backend."""
+    entry = MagicMock()
+    entry.entry_id = "test-entry-id"
+    entry.data = {
+        CONF_API_TYPE: "openai",
+        CONF_MODEL_NAME: DEFAULT_MODEL_NAME,
+        CONF_API_KEY: DEFAULT_API_KEY,
+    }
+    entry.options = {
+        "prompt": DEFAULT_PROMPT,
+        "max_history": DEFAULT_MAX_HISTORY,
+        "temperature": DEFAULT_TEMPERATURE,
+        "top_p": DEFAULT_TOP_P,
+        "keep_alive": DEFAULT_KEEP_ALIVE,
+        "try_ha_first": False,
     }
     return entry
 
@@ -203,3 +230,30 @@ def make_ollama_response(content: str, tool_calls: list[dict] | None = None) -> 
 def make_tool_call(name: str, arguments: dict) -> dict:
     """Helper to build a tool_call dict matching Ollama's format."""
     return {"function": {"name": name, "arguments": arguments}}
+
+
+def make_openai_response(
+    content: str, tool_calls: list[dict] | None = None
+) -> dict:
+    """Helper to build a mock OpenAI-compatible API response."""
+    message: dict[str, Any] = {"role": "assistant", "content": content}
+    if tool_calls:
+        message["tool_calls"] = tool_calls
+    return {
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "choices": [{"index": 0, "message": message, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+    }
+
+
+def make_openai_tool_call(
+    name: str, arguments: dict, call_id: str = "call_001"
+) -> dict:
+    """Helper to build a tool_call dict matching OpenAI's format."""
+    import json
+    return {
+        "id": call_id,
+        "type": "function",
+        "function": {"name": name, "arguments": json.dumps(arguments)},
+    }

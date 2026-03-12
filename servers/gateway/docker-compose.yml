@@ -4,14 +4,18 @@ version: "3.9"
 # Gateway Node — Mini PC
 # Network gateway, auth, DNS, Home Assistant, monitoring
 # ============================================================
+#
+# Phase 1 (default):  redis, homeassistant, pihole, uptime-kuma, nut-upsd
+# Note: Reverse proxy (Traefik) runs on a separate host — not managed here
+# Phase 2 (--profile phase2):  + authentik
+# Phase 3 (--profile phase3):  + searxng
+#
 
 networks:
   gateway:
     driver: bridge
 
 volumes:
-  caddy_data:
-  caddy_config:
   authentik_db:
   authentik_redis:
   redis_data:
@@ -22,34 +26,12 @@ volumes:
   uptime_kuma_data:
 
 services:
-  # ── Reverse Proxy ──────────────────────────────────────────
-  caddy:
-    image: caddy:2-alpine
-    container_name: caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - gateway
-    extra_hosts:
-      - "inference.home.local:${INFERENCE_IP}"
-      - "agent.home.local:${AGENT_IP}"
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  # ── Authentication ─────────────────────────────────────────
+  # ── Authentication (Phase 2) ──────────────────────────────
   authentik-db:
     image: postgres:16-alpine
     container_name: authentik-db
     restart: always
+    profiles: [phase2]
     environment:
       POSTGRES_DB: authentik
       POSTGRES_USER: authentik
@@ -69,6 +51,7 @@ services:
     image: goauthentik/server:latest
     container_name: authentik
     restart: unless-stopped
+    profiles: [phase2]
     command: server
     environment:
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
@@ -95,6 +78,7 @@ services:
     image: goauthentik/server:latest
     container_name: authentik-worker
     restart: unless-stopped
+    profiles: [phase2]
     command: worker
     environment:
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
@@ -172,11 +156,12 @@ services:
       timeout: 10s
       retries: 3
 
-  # ── Metasearch ─────────────────────────────────────────────
+  # ── Metasearch (Phase 3) ──────────────────────────────────
   searxng:
     image: searxng/searxng:latest
     container_name: searxng
     restart: unless-stopped
+    profiles: [phase3]
     ports:
       - "8888:8080"
     volumes:

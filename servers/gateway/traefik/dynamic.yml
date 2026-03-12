@@ -1,0 +1,175 @@
+# ============================================================
+# Traefik Dynamic Configuration — ha-jarvis Homelab Routes
+#
+# Drop this file into your existing Traefik's file provider
+# directory (e.g., /etc/traefik/dynamic/).
+#
+# Before using, find-and-replace these placeholders:
+#   {{DOMAIN}}     → your domain (e.g., example.com)
+#   {{GATEWAY_IP}} → Gateway node IP (e.g., 192.168.1.10)
+#   {{AGENT_IP}}   → Agent node IP (e.g., 192.168.1.11)
+#
+# Routes are grouped by deployment phase. Comment out Phase 2/3
+# routes until those services are deployed.
+# ============================================================
+
+http:
+
+  # ── Middlewares ───────────────────────────────────────────
+  middlewares:
+    lan-only:
+      ipAllowList:
+        sourceRange:
+          - "192.168.1.0/24"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+
+  # ── Routers ──────────────────────────────────────────────
+  routers:
+
+    # ── Phase 1 ────────────────────────────────────────────
+
+    homeassistant:
+      rule: "Host(`ha.{{DOMAIN}}`)"
+      service: homeassistant
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: default
+
+    uptime-kuma:
+      rule: "Host(`status.{{DOMAIN}}`)"
+      service: uptime-kuma
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: default
+
+    pihole:
+      rule: "Host(`pihole.{{DOMAIN}}`)"
+      service: pihole
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: default
+
+    grafana:
+      rule: "Host(`grafana.{{DOMAIN}}`)"
+      service: grafana
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: default
+
+    # ── Phase 2 ────────────────────────────────────────────
+
+    # authentik:
+    #   rule: "Host(`auth.{{DOMAIN}}`)"
+    #   service: authentik
+    #   entryPoints:
+    #     - websecure
+    #   tls:
+    #     certResolver: default
+
+    # open-webui:
+    #   rule: "Host(`chat.{{DOMAIN}}`)"
+    #   service: open-webui
+    #   entryPoints:
+    #     - websecure
+    #   tls:
+    #     certResolver: default
+
+    # agent-api:
+    #   rule: "Host(`agent.{{DOMAIN}}`)"
+    #   service: agent-api
+    #   entryPoints:
+    #     - websecure
+    #   tls:
+    #     certResolver: default
+    #   middlewares:
+    #     - lan-only
+
+    # ── Phase 3 ────────────────────────────────────────────
+
+    # searxng:
+    #   rule: "Host(`search.{{DOMAIN}}`)"
+    #   service: searxng
+    #   entryPoints:
+    #     - websecure
+    #   tls:
+    #     certResolver: default
+
+    # paperless:
+    #   rule: "Host(`docs.{{DOMAIN}}`)"
+    #   service: paperless
+    #   entryPoints:
+    #     - websecure
+    #   tls:
+    #     certResolver: default
+
+    # perplexica:
+    #   rule: "Host(`research.{{DOMAIN}}`)"
+    #   service: perplexica
+    #   entryPoints:
+    #     - websecure
+    #   tls:
+    #     certResolver: default
+
+  # ── Services ─────────────────────────────────────────────
+  services:
+
+    # ── Phase 1 ────────────────────────────────────────────
+
+    homeassistant:
+      loadBalancer:
+        servers:
+          - url: "http://{{GATEWAY_IP}}:8123"
+
+    uptime-kuma:
+      loadBalancer:
+        servers:
+          - url: "http://{{GATEWAY_IP}}:3001"
+
+    pihole:
+      loadBalancer:
+        servers:
+          - url: "http://{{GATEWAY_IP}}:8053"
+
+    grafana:
+      loadBalancer:
+        servers:
+          - url: "http://{{AGENT_IP}}:3100"
+
+    # ── Phase 2 ────────────────────────────────────────────
+
+    # authentik:
+    #   loadBalancer:
+    #     servers:
+    #       - url: "http://{{GATEWAY_IP}}:9000"
+
+    # open-webui:
+    #   loadBalancer:
+    #     servers:
+    #       - url: "http://{{AGENT_IP}}:3000"
+
+    # agent-api:
+    #   loadBalancer:
+    #     servers:
+    #       - url: "http://{{AGENT_IP}}:8100"
+
+    # ── Phase 3 ────────────────────────────────────────────
+
+    # searxng:
+    #   loadBalancer:
+    #     servers:
+    #       - url: "http://{{GATEWAY_IP}}:8888"
+
+    # paperless:
+    #   loadBalancer:
+    #     servers:
+    #       - url: "http://{{AGENT_IP}}:8000"
+
+    # perplexica:
+    #   loadBalancer:
+    #     servers:
+    #       - url: "http://{{AGENT_IP}}:3999"

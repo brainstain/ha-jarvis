@@ -1,0 +1,48 @@
+# ============================================================
+# LiteLLM Proxy Configuration
+# Single inference endpoint with priority-based failover
+# ============================================================
+
+model_list:
+  # Primary reasoning — Qwen3-30B-A3B on RTX 3090
+  - model_name: "assistant"
+    litellm_params:
+      model: "ollama/qwen3:30b-a3b-q5_K_M"
+      api_base: "http://inference.home.local:11434"
+      timeout: 120
+      stream: true
+    model_info:
+      priority: 1
+
+  # Fallback reasoning — Qwen3-8B on GTX 1080 Ti
+  - model_name: "assistant"
+    litellm_params:
+      model: "ollama/qwen3:8b-q8_0"
+      api_base: "http://localhost:11434"
+      timeout: 60
+      stream: true
+    model_info:
+      priority: 2
+
+  # Fast router / classifier — Qwen3-4B on GTX 1080 Ti
+  - model_name: "assistant-fast"
+    litellm_params:
+      model: "ollama/qwen3:4b-q8_0"
+      api_base: "http://localhost:11434"
+      timeout: 30
+      stream: true
+
+  # Embeddings — nomic-embed-text on GTX 1080 Ti
+  - model_name: "embeddings"
+    litellm_params:
+      model: "ollama/nomic-embed-text:v1.5"
+      api_base: "http://localhost:11434"
+
+router_settings:
+  routing_strategy: "simple-shuffle"
+  num_retries: 2
+  timeout: 120
+  retry_after: 5
+  fallbacks: [{"assistant": ["assistant"]}]
+  allowed_fails: 3
+  cooldown_time: 60

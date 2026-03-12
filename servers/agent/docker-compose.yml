@@ -4,6 +4,11 @@ version: "3.9"
 # Agent & Worker Node — Mid Server (GTX 1080 Ti)
 # Agent orchestration, vector DB, chat UI, monitoring
 # ============================================================
+#
+# Phase 1 (default):  litellm, ollama, ollama-metrics, prometheus, grafana, exporters
+# Phase 2 (--profile phase2):  + qdrant, agent-orchestrator, open-webui
+# Phase 3 (--profile phase3):  + celery-worker, perplexica, paperless-ngx
+#
 
 networks:
   agent:
@@ -17,6 +22,8 @@ volumes:
   prometheus_data:
   grafana_data:
   perplexica_data:
+  paperless_db:
+  paperless_redis:
 
 services:
   # ── Inference Proxy ────────────────────────────────────────
@@ -89,11 +96,12 @@ services:
       ollama:
         condition: service_healthy
 
-  # ── Vector Database ────────────────────────────────────────
+  # ── Vector Database (Phase 2) ────────────────────────────────
   qdrant:
     image: qdrant/qdrant:latest
     container_name: qdrant
     restart: always
+    profiles: [phase2]
     ports:
       - "6333:6333"
       - "6334:6334"
@@ -111,13 +119,14 @@ services:
       retries: 5
       start_period: 10s
 
-  # ── Agent Orchestrator (Custom) ────────────────────────────
+  # ── Agent Orchestrator (Phase 2) ────────────────────────────
   agent-orchestrator:
     build:
       context: ../../custom-software/agent-orchestrator
       dockerfile: Dockerfile
     container_name: agent-orchestrator
     restart: unless-stopped
+    profiles: [phase2]
     ports:
       - "8100:8100"
     volumes:
@@ -155,13 +164,14 @@ services:
       retries: 3
       start_period: 30s
 
-  # ── Async Task Worker ──────────────────────────────────────
+  # ── Async Task Worker (Phase 3) ──────────────────────────────
   celery-worker:
     build:
       context: ../../custom-software/agent-orchestrator
       dockerfile: Dockerfile
     container_name: celery-worker
     restart: unless-stopped
+    profiles: [phase3]
     command: ["celery", "-A", "agent.tasks", "worker", "--loglevel=info", "--concurrency=2"]
     volumes:
       - langgraph_data:/data/langgraph
@@ -186,11 +196,12 @@ services:
       qdrant:
         condition: service_healthy
 
-  # ── Chat Interface ─────────────────────────────────────────
+  # ── Chat Interface (Phase 2) ─────────────────────────────────
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
     restart: unless-stopped
+    profiles: [phase2]
     ports:
       - "3000:8080"
     volumes:
@@ -212,13 +223,14 @@ services:
       retries: 3
       start_period: 30s
 
-  # ── AI Search ──────────────────────────────────────────────
+  # ── AI Search (Phase 3) ──────────────────────────────────────
   perplexica-backend:
     build:
       context: ./perplexica
       dockerfile: backend.dockerfile
     container_name: perplexica-backend
     restart: unless-stopped
+    profiles: [phase3]
     ports:
       - "3999:3001"
     volumes:
@@ -241,6 +253,7 @@ services:
     volumes:
       - prometheus_data:/prometheus
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/alerts.yml:/etc/prometheus/alerts.yml:ro
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=30d'
@@ -303,3 +316,106 @@ services:
       - /:/host:ro,rslave
     networks:
       - agent
+
+  # ── Document Management (Phase 3) ───────────────────────────
+  # Relocated from NAS — NAS serves storage only via NFS/SMB
+  paperless-db:
+    image: postgres:16-alpine
+    container_name: paperless-db
+    restart: always
+    profiles: [phase3]
+    environment:
+      POSTGRES_DB: paperless
+      POSTGRES_USER: paperless
+      POSTGRES_PASSWORD: ${PAPERLESS_DB_PASSWORD}
+    volumes:
+      - paperless_db:/var/lib/postgresql/data
+    networks:
+      - agent
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperless"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  paperless-redis:
+    image: redis:7-alpine
+    container_name: paperless-redis
+    restart: always
+    profiles: [phase3]
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - paperless_redis:/data
+    networks:
+      - agent
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  paperless-ngx:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    container_name: paperless-ngx
+    restart: unless-stopped
+    profiles: [phase3]
+    ports:
+      - "8000:8000"
+    volumes:
+      - /mnt/nas/paperless/data:/usr/src/paperless/data
+      - /mnt/nas/paperless/media:/usr/src/paperless/media
+      - /mnt/nas/paperless/consume:/usr/src/paperless/consume
+      - /mnt/nas/paperless/export:/usr/src/paperless/export
+    environment:
+      PAPERLESS_DBHOST: paperless-db
+      PAPERLESS_DBNAME: paperless
+      PAPERLESS_DBUSER: paperless
+      PAPERLESS_DBPASS: ${PAPERLESS_DB_PASSWORD}
+      PAPERLESS_REDIS: redis://paperless-redis:6379
+      PAPERLESS_URL: https://docs.${DOMAIN}
+      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY}
+      PAPERLESS_TIME_ZONE: ${TIMEZONE}
+      PAPERLESS_OCR_LANGUAGE: eng
+      PAPERLESS_CONSUMER_POLLING: "30"
+      PAPERLESS_CONSUMER_RECURSIVE: "true"
+      PAPERLESS_FILENAME_FORMAT: "{created_year}/{correspondent}/{title}"
+      PAPERLESS_TASK_WORKERS: "2"
+      USERMAP_UID: "1000"
+      USERMAP_GID: "1000"
+    networks:
+      - agent
+    depends_on:
+      paperless-db:
+        condition: service_healthy
+      paperless-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  paperless-ai:
+    image: clusterzx/paperless-ai:latest
+    container_name: paperless-ai
+    restart: unless-stopped
+    profiles: [phase3]
+    ports:
+      - "3030:3000"
+    environment:
+      PAPERLESS_API_URL: "http://paperless-ngx:8000/api"
+      PAPERLESS_API_TOKEN: ${PAPERLESS_API_TOKEN}
+      AI_PROVIDER: "custom"
+      CUSTOM_BASE_URL: "http://litellm:4000/v1"
+      CUSTOM_MODEL: "assistant"
+      CUSTOM_API_KEY: "sk-placeholder"
+      SCAN_INTERVAL: "300"
+      ADD_AI_TAG: "true"
+      PROCESS_PREDEFINED_DOCUMENTS: "true"
+    networks:
+      - agent
+    depends_on:
+      paperless-ngx:
+        condition: service_healthy

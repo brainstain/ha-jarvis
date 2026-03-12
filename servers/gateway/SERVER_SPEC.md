@@ -11,7 +11,6 @@
 
 | Service | Image | Port | RAM | Purpose |
 |---------|-------|------|-----|---------|
-| Caddy | caddy:2-alpine | 80, 443 | 50 MB | Reverse proxy, auto-HTTPS |
 | Authentik | goauthentik/server | 9000 | 800 MB | SSO, user profiles, MFA |
 | Authentik Worker | goauthentik/server | — | 400 MB | Background tasks |
 | PostgreSQL (Authentik) | postgres:16-alpine | 5432 | 200 MB | Authentik database |
@@ -22,14 +21,16 @@
 | Uptime Kuma | louislam/uptime-kuma | 3001 | 150 MB | Service health monitoring |
 | NUT Server | instantlinux/nut-upsd | 3493 | 20 MB | UPS monitoring |
 
-**Total estimated RAM:** ~3.1 GB (well within 12 GB allocation)
+**Total estimated RAM:** ~3.05 GB (well within 12 GB allocation)
+
+> **Note:** Reverse proxy (Traefik) runs on a separate host and is not managed by this node's docker-compose.
 
 ---
 
 ## Key Configuration Notes
 
-### Caddy
-Acts as the single entry point for all web-facing services across all nodes. Routes to backend services on other nodes via internal DNS.
+### Traefik (External)
+Reverse proxy runs on a separate host. A reference dynamic config is provided at `servers/gateway/traefik/dynamic.yml` with all route definitions. Pi-hole DNS resolves all service subdomains to the Traefik host IP.
 
 ### Authentik
 User profiles contain:
@@ -68,7 +69,6 @@ Serves three roles:
 
 | Service | Check | Interval | Timeout |
 |---------|-------|----------|---------|
-| Caddy | TCP :443 | 10s | 5s |
 | Authentik | HTTP /api/v3/root/config/ | 30s | 10s |
 | Redis | `redis-cli ping` | 10s | 5s |
 | Home Assistant | HTTP /api/ | 30s | 10s |
@@ -82,7 +82,7 @@ Serves three roles:
 
 | From | To | Port | Protocol | Purpose |
 |------|-----|------|----------|---------|
-| Internet | Caddy | 80, 443 | TCP | Web traffic |
+| Traefik Host | HA, Uptime Kuma, Pi-hole, Authentik, SearXNG | various | TCP | Reverse-proxied web traffic |
 | All nodes | Pi-hole | 53 | TCP/UDP | DNS |
 | All nodes | Redis | 6379 | TCP | Cache/broker |
 | All nodes | HA | 8123 | TCP | HA API |

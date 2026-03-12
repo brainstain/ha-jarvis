@@ -1,0 +1,94 @@
+# ============================================================
+# Prometheus Alerting Rules
+# Phase 1: Infrastructure health alerts
+# ============================================================
+
+groups:
+  - name: inference
+    rules:
+      - alert: OllamaInferenceDown
+        expr: up{job="ollama-inference"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Primary Ollama (3090) is down"
+          description: "Ollama on Inference Engine has been unreachable for 2 minutes. LiteLLM will failover to secondary."
+
+      - alert: OllamaAgentDown
+        expr: up{job="ollama-agent"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Secondary Ollama (1080 Ti) is down"
+          description: "Ollama on Agent Node has been unreachable for 2 minutes."
+
+      - alert: LiteLLMDown
+        expr: up{job="litellm"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LiteLLM proxy is down"
+          description: "LiteLLM inference proxy is unreachable. All LLM-dependent services are affected."
+
+  - name: gpu
+    rules:
+      - alert: HighGPUTemperature
+        expr: nvidia_gpu_temperature_celsius > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU temperature above 85C on {{ $labels.instance }}"
+          description: "GPU {{ $labels.gpu }} is at {{ $value }}C for over 5 minutes."
+
+      - alert: HighGPUMemoryUsage
+        expr: (nvidia_gpu_memory_used_bytes / nvidia_gpu_memory_total_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU memory above 90% on {{ $labels.instance }}"
+          description: "GPU {{ $labels.gpu }} memory at {{ $value | humanizePercentage }}."
+
+  - name: nodes
+    rules:
+      - alert: NodeHighCPU
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage above 90% for 10 minutes."
+
+      - alert: NodeHighMemory
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage above 90% for 5 minutes."
+
+      - alert: NodeDiskSpaceLow
+        expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space low on {{ $labels.instance }}:{{ $labels.mountpoint }}"
+          description: "Disk usage above 85%."
+
+  - name: services
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} is down on {{ $labels.instance }}"
+          description: "Scrape target has been unreachable for 3 minutes."
