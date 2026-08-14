@@ -1,0 +1,46 @@
+{
+  "$comment": "MCP servers available to the orchestrator. Names match the keys in src/agent/mcp/tool_filter.py CATEGORY_SERVERS, so 'categories' can be omitted; it is stated explicitly here for readability. Servers not yet built are shipped disabled so discovery stays clean.",
+  "servers": [
+    {
+      "name": "ha-mcp",
+      "transport": "sse",
+      "url": "http://gateway.home.local:8123/mcp",
+      "headers": {},
+      "categories": ["home_assistant"],
+      "enabled": true,
+      "timeout": 30
+    },
+    {
+      "name": "mcp-memory-scoped",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_memory_scoped"],
+      "categories": ["memory"],
+      "enabled": false,
+      "timeout": 30
+    },
+    {
+      "name": "mcp-notifications",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_notifications"],
+      "categories": ["notifications"],
+      "enabled": false,
+      "timeout": 30
+    },
+    {
+      "name": "mcp-filesystem",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/mnt/nas"],
+      "categories": ["filesystem", "documents"],
+      "enabled": false,
+      "timeout": 30
+    }
+  ],
+  "tool_routing": {
+    "max_tools_per_request": 7,
+    "category_priority": ["home_assistant", "memory", "notifications"],
+    "always_include_categories": ["memory", "notifications"]
+  }
+}

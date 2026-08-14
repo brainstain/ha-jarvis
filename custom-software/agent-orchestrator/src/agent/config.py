@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     loop_detection_window: int = 5
     loop_detection_repeats: int = 3
 
+    # ── MCP ──────────────────────────────────────────────────
+    # Relative to the working directory (/app in the container).
+    mcp_config_path: str = "config/mcp_servers.json"
+
     # ── Memory ───────────────────────────────────────────────
     memory_auto_promote_family: bool = True
     memory_confirmation_required: bool = True

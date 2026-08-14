@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir .
 
 # Copy application code
 COPY src/ src/
+COPY config/ config/
 
 # Create data directories
 RUN mkdir -p /data/langgraph

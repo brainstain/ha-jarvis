@@ -11,7 +11,9 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from agent import __version__
 from agent.api.routes import router as api_router
+from agent.api.routes import set_tools
 from agent.config import get_settings
+from agent.mcp.registry import MCPToolRegistry
 
 
 def configure_logging(level: str) -> None:
@@ -40,7 +42,24 @@ async def lifespan(app: FastAPI):
         litellm=settings.litellm_base_url,
         qdrant=f"{settings.qdrant_host}:{settings.qdrant_port}",
     )
+
+    # Discover MCP tools once, here, rather than lazily per request: connecting
+    # up front means the first user request doesn't pay a subprocess spawn, and
+    # the sessions are opened and closed by the same task.
+    # strict=False — a broken MCP config degrades tool use, it does not stop
+    # the service from booting and serving /health.
+    mcp = MCPToolRegistry.from_config(settings.mcp_config_path, strict=False)
+    try:
+        await mcp.discover()
+    except Exception as exc:  # noqa: BLE001 - startup must not hard-fail on MCP
+        log.error("mcp_discovery_error", error=str(exc))
+    set_tools(mcp)
+    log.info("mcp_ready", tools=len(mcp.tool_names), failed=sorted(mcp.failed))
+
     yield
+
+    set_tools(None)
+    await mcp.close()
     log.info("orchestrator_stopping")
 
 
