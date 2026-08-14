@@ -87,7 +87,25 @@ if [[ $(date +%u) -eq 7 ]]; then
     log "  + Prometheus backed up (weekly)"
 fi
 
-# ── 6. Cleanup Old Backups ────────────────────────────────────
+# ── 6. SpeechBrain Speaker Data (Inference node, Phase 2+) ────
+# Implements the "speechbrain_data → Daily → NAS" line in
+# servers/inference/SERVER_SPEC.md. Runs when this script executes
+# on the inference host (container check keeps it a no-op elsewhere).
+if container_running speechbrain; then
+    log "Backing up SpeechBrain speaker embeddings..."
+    SB_VOLUME_PATH=$(docker volume inspect --format '{{ .Mountpoint }}' inference_speechbrain_data 2>/dev/null || true)
+    if [[ -n "$SB_VOLUME_PATH" && -d "$SB_VOLUME_PATH" ]]; then
+        rsync -az "$SB_VOLUME_PATH/" \
+            "${NAS_BACKUP_DIR}/speechbrain/" 2>/dev/null || log "  - SpeechBrain rsync failed"
+        log "  + SpeechBrain speaker data backed up"
+    else
+        log "  - speechbrain_data volume not found; skipping"
+    fi
+else
+    log "Skipping SpeechBrain backup (container not running)"
+fi
+
+# ── 7. Cleanup Old Backups ────────────────────────────────────
 log "Cleaning backups older than ${RETENTION_DAYS} days..."
 find "$LOCAL_BACKUP_DIR" -type f -mtime +${RETENTION_DAYS} -delete 2>/dev/null
 find "$NAS_BACKUP_DIR" -type d -empty -delete 2>/dev/null

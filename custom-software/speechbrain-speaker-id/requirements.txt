@@ -1,0 +1,9 @@
+fastapi>=0.111
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+speechbrain>=1.0
+torch>=2.2
+torchaudio>=2.2
+qdrant-client>=1.9
+numpy>=1.26
+soundfile>=0.12

@@ -1,12 +1,13 @@
-version: "3.9"
-
 # ============================================================
 # Inference Engine — Power Server (RTX 3090)
 # Primary LLM, STT, TTS, Speaker ID, Wake Word
 # ============================================================
 #
-# Phase 1 (default):  ollama, faster-whisper, piper-tts, openwakeword, exporters
+# Phase 1 (default):  ollama, wyoming-whisper, piper-tts, openwakeword, exporters
 # Phase 2 (--profile phase2):  + speechbrain
+#
+# Runs inside the vm-inference guest (VFIO passthrough of the 3090;
+# NVIDIA Container Toolkit installed in the guest).
 #
 
 networks:
@@ -48,26 +49,52 @@ services:
     networks:
       - inference
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      # curl is not shipped in the ollama image; the ollama CLI is.
+      test: ["CMD", "ollama", "list"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      start_period: 240s
 
-  # ── Speech-to-Text ─────────────────────────────────────────
-  faster-whisper:
-    image: fedirz/faster-whisper-server:latest-cuda
-    container_name: faster-whisper
+  # ── Ollama Prometheus Metrics ──────────────────────────────
+  # prometheus.yml job "ollama-inference" scrapes this host on :9091;
+  # without this exporter that job (and the OllamaInferenceDown alert)
+  # is permanently down.
+  ollama-metrics:
+    image: ghcr.io/norskhelsenett/ollama-metrics:latest
+    container_name: ollama-metrics-inference
     restart: unless-stopped
     ports:
-      - "8443:8000"
-    volumes:
-      - whisper_cache:/root/.cache
+      - "9091:9091"
     environment:
-      WHISPER__MODEL: "Systran/faster-whisper-large-v3-turbo"
-      WHISPER__DEVICE: "cuda"
-      WHISPER__COMPUTE_TYPE: "float16"
-      WHISPER__LANGUAGE: "en"
+      OLLAMA_URL: "http://ollama:11434"
+    networks:
+      - inference
+    depends_on:
+      - ollama
+
+  # ── Speech-to-Text (Wyoming) ───────────────────────────────
+  # rhasspy/wyoming-faster-whisper speaks the Wyoming protocol that
+  # Home Assistant's assist pipeline requires. The previously used
+  # fedirz/faster-whisper-server exposes an OpenAI-style REST API
+  # (not Wyoming) and has been renamed upstream to "speaches".
+  wyoming-whisper:
+    image: rhasspy/wyoming-faster-whisper:latest
+    container_name: wyoming-whisper
+    restart: unless-stopped
+    ports:
+      - "10300:10300"
+    volumes:
+      - whisper_cache:/data
+    command: >
+      --model large-v3-turbo
+      --device cuda
+      --compute-type float16
+      --language en
+      --beam-size 5
+      --uri tcp://0.0.0.0:10300
+      --data-dir /data
+      --download-dir /data
     deploy:
       resources:
         reservations:
@@ -75,10 +102,13 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+        limits:
+          memory: 4G
     networks:
       - inference
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      # Wyoming images don't reliably ship nc/curl; they do ship python3.
+      test: ["CMD-SHELL", "python3 -c \"import socket; socket.create_connection(('localhost',10300),2)\""]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -100,16 +130,22 @@ services:
       --noise-w 0.8
       --uri tcp://0.0.0.0:10200
       --download-dir /data
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     networks:
       - inference
     healthcheck:
-      test: ["CMD-SHELL", "echo | nc -w 2 localhost 10200 || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import socket; socket.create_connection(('localhost',10200),2)\""]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 15s
 
   # ── Speaker Identification (Phase 2) ───────────────────────
+  # CPU by default (DEVICE=cpu) to preserve VRAM — the ECAPA-TDNN
+  # model is small; ~2s speaker-ID latency is acceptable.
   speechbrain:
     build:
       context: ../../custom-software/speechbrain-speaker-id
@@ -125,14 +161,11 @@ services:
       QDRANT_HOST: "agent.home.local"
       QDRANT_PORT: "6333"
       SIMILARITY_THRESHOLD: "0.7"
-      DEVICE: "cuda"
+      DEVICE: "cpu"
     deploy:
       resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+        limits:
+          memory: 3G
     networks:
       - inference
     extra_hosts:
@@ -156,10 +189,14 @@ services:
       --threshold 0.5
       --trigger-level 3
       --uri tcp://0.0.0.0:10400
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     networks:
       - inference
     healthcheck:
-      test: ["CMD-SHELL", "echo | nc -w 2 localhost 10400 || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import socket; socket.create_connection(('localhost',10400),2)\""]
       interval: 15s
       timeout: 5s
       retries: 3

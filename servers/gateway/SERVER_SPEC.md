@@ -42,7 +42,7 @@ User profiles contain:
 - `preferences`: JSON blob for macro targets, display preferences, etc.
 
 ### Home Assistant
-- Voice pipeline configured with Wyoming protocol pointing to Inference Engine
+- Voice pipeline configured with Wyoming protocol pointing to Inference Engine (STT: wyoming-faster-whisper :10300, TTS: Piper :10200, wake word: openWakeWord :10400)
 - Conversation agent configured to route through Agent Orchestrator (not built-in Ollama)
 - Fallback automation: polls Ollama health every 60s, switches to built-in intents on failure
 - Shopping list integration enabled for mcp-shopping-list

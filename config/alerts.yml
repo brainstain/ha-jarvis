@@ -35,14 +35,23 @@ groups:
 
   - name: gpu
     rules:
-      - alert: HighGPUTemperature
-        expr: nvidia_gpu_temperature_celsius > 85
+      - alert: GPUTemperatureWarning
+        expr: nvidia_gpu_temperature_celsius > 80
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "GPU temperature above 85C on {{ $labels.instance }}"
-          description: "GPU {{ $labels.gpu }} is at {{ $value }}C for over 5 minutes."
+          summary: "GPU temperature above 80C on {{ $labels.instance }}"
+          description: "GPU {{ $labels.gpu }} is at {{ $value }}C for over 5 minutes. Approaching the 3090's ~83C throttle point."
+
+      - alert: GPUTemperatureCritical
+        expr: nvidia_gpu_temperature_celsius > 85
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GPU temperature above 85C on {{ $labels.instance }} — throttling active"
+          description: "GPU {{ $labels.gpu }} is at {{ $value }}C. Trigger scripts/gpu-thermal-cap.sh (nvidia-smi power cap) via Alertmanager webhook to shed load without restarting Ollama."
 
       - alert: HighGPUMemoryUsage
         expr: (nvidia_gpu_memory_used_bytes / nvidia_gpu_memory_total_bytes) * 100 > 90

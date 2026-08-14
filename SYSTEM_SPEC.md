@@ -41,7 +41,7 @@ Internet
     │
     ├──── [Agent: Mid Server] ── Agent Orchestrator, Open WebUI, Qdrant, Perplexica
     │
-    ├──── [Inference: Power Server] ── Ollama/vLLM, faster-whisper, Piper TTS
+    ├──── [Inference: Power Server] ── Ollama, wyoming-whisper (STT), Piper TTS
     │
     └──── [NAS: Synology] ── Paperless-NGX, Document Storage, Backups
 ```
@@ -75,7 +75,7 @@ Internet
 
 **Inference Engine (Power Server)**
 - Ollama (primary, Qwen3-30B-A3B on 3090)
-- vLLM (secondary, robust tool calling)
+- vLLM (secondary, robust tool calling) — **Phase 2+, not yet implemented** (absent from inference SERVER_SPEC and compose)
 - faster-whisper (STT, large-v3-turbo)
 - Piper TTS (text-to-speech)
 - SpeechBrain (speaker identification)
