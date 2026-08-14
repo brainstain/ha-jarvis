@@ -146,7 +146,14 @@ services:
   # ── Speaker Identification (Phase 2) ───────────────────────
   # CPU by default (DEVICE=cpu) to preserve VRAM — the ECAPA-TDNN
   # model is small; ~2s speaker-ID latency is acceptable.
+  #
+  # Defaults to the prebuilt image published by
+  # .github/workflows/build-speechbrain.yml (avoids compiling torch
+  # on the VM). Override SPEECHBRAIN_IMAGE in .env to pin a tag, or
+  # run `docker compose --profile phase2 build speechbrain` to build
+  # locally from the build context below.
   speechbrain:
+    image: ${SPEECHBRAIN_IMAGE:-ghcr.io/brainstain/speechbrain-speaker-id:latest}
     build:
       context: ../../custom-software/speechbrain-speaker-id
       dockerfile: Dockerfile
