@@ -2,36 +2,57 @@ version: "3.9"
 
 # ============================================================
 # Gateway Node — Mini PC
-# Network gateway, auth, DNS, Home Assistant, monitoring
+# Network gateway, auth, DNS, monitoring
+# (Home Assistant now runs on its own VM — see project memory)
 # ============================================================
-#
-# Phase 1 (default):  redis, homeassistant, pihole, uptime-kuma, nut-upsd
-# Note: Reverse proxy (Traefik) runs on a separate host — not managed here
-# Phase 2 (--profile phase2):  + authentik
-# Phase 3 (--profile phase3):  + searxng
-#
 
 networks:
   gateway:
     driver: bridge
 
 volumes:
+  caddy_data:
+  caddy_config:
   authentik_db:
   authentik_redis:
   redis_data:
-  homeassistant_config:
   pihole_etc:
   pihole_dnsmasq:
   searxng_config:
   uptime_kuma_data:
 
 services:
-  # ── Authentication (Phase 2) ──────────────────────────────
+  # ── Reverse Proxy ──────────────────────────────────────────
+  caddy:
+    build:
+      context: ./caddy
+      dockerfile: Dockerfile
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
+    networks:
+      - gateway
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Authentication ─────────────────────────────────────────
   authentik-db:
     image: postgres:16-alpine
     container_name: authentik-db
     restart: always
-    profiles: [phase2]
     environment:
       POSTGRES_DB: authentik
       POSTGRES_USER: authentik
@@ -51,7 +72,6 @@ services:
     image: goauthentik/server:latest
     container_name: authentik
     restart: unless-stopped
-    profiles: [phase2]
     command: server
     environment:
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
@@ -78,7 +98,6 @@ services:
     image: goauthentik/server:latest
     container_name: authentik-worker
     restart: unless-stopped
-    profiles: [phase2]
     command: worker
     environment:
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
@@ -113,21 +132,6 @@ services:
       timeout: 5s
       retries: 3
 
-  # ── Home Assistant ─────────────────────────────────────────
-  homeassistant:
-    image: ghcr.io/home-assistant/home-assistant:stable
-    container_name: homeassistant
-    restart: unless-stopped
-    privileged: true
-    network_mode: host
-    environment:
-      TZ: ${TIMEZONE}
-    volumes:
-      - homeassistant_config:/config
-      - /run/dbus:/run/dbus:ro
-    # Note: network_mode: host means no Docker network isolation
-    # HA needs host networking for mDNS device discovery
-
   # ── DNS ────────────────────────────────────────────────────
   pihole:
     image: pihole/pihole:latest
@@ -156,12 +160,11 @@ services:
       timeout: 10s
       retries: 3
 
-  # ── Metasearch (Phase 3) ──────────────────────────────────
+  # ── Metasearch ─────────────────────────────────────────────
   searxng:
     image: searxng/searxng:latest
     container_name: searxng
     restart: unless-stopped
-    profiles: [phase3]
     ports:
       - "8888:8080"
     volumes:

@@ -1,15 +1,34 @@
 # ============================================================
-# Pi-hole Custom DNS Records
-# Maps internal hostnames to LAN IPs
+# Pi-hole local DNS overrides
+# Split-horizon: these records only apply to clients using
+# Pi-hole as their resolver. Public DNS for michaelgoldstein.co
+# can point the same names elsewhere for off-network access.
 #
-# IMPORTANT: Replace the placeholder IPs below with your
-# actual node IPs, or run: scripts/generate-pihole-dns.sh
-#
-# Format: <IP> <hostname>
+# Install at: servers/gateway/pihole/custom.list
+# Mounted read-only into the pihole container in docker-compose.yml
 # ============================================================
 
-# ── Node hostnames ─────────────────────────────────────────
-192.168.1.10 gateway.home.local
-192.168.1.11 agent.home.local
-192.168.1.12 inference.home.local
-192.168.1.13 nas.home.local
+# ── Nodes ────────────────────────────────────────────────────
+192.168.13.29   gateway.michaelgoldstein.co
+192.168.13.22   agent.michaelgoldstein.co
+192.168.13.15   inference.michaelgoldstein.co
+192.168.13.26   nas.michaelgoldstein.co
+192.168.13.20   ha.michaelgoldstein.co
+
+# ── Services fronted by Caddy — all resolve to Gateway IP ───
+# Caddy terminates TLS here and proxies internally to the
+# correct backend node/port. Add more lines as new routes
+# are added to the Caddyfile.
+192.168.13.29   authentik.michaelgoldstein.co
+192.168.13.29   search.michaelgoldstein.co
+192.168.13.29   uptime.michaelgoldstein.co
+192.168.13.29   pihole.michaelgoldstein.co
+192.168.13.29   grafana.michaelgoldstein.co
+192.168.13.29   webui.michaelgoldstein.co
+192.168.13.29   prometheus.michaelgoldstein.co
+192.168.13.29   litellm.michaelgoldstein.co
+192.168.13.29   perplexica.michaelgoldstein.co
+192.168.13.29   qdrant.michaelgoldstein.co
+192.168.13.29   paperless.michaelgoldstein.co
+192.168.13.29   paperless-ai.michaelgoldstein.co
+# 192.168.13.29 agent-api.michaelgoldstein.co   # add once Agent Orchestrator is deployed (Phase 2)

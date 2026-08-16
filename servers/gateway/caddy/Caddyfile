@@ -1,0 +1,71 @@
+# ============================================================
+# Caddy reverse proxy — homelab AI agent
+# TLS via Route53 DNS-01 (no port-forwarding required)
+# Install at: servers/gateway/caddy/Caddyfile
+# ============================================================
+
+{
+	email admin@michaelgoldstein.co
+	acme_dns route53 {
+		access_key_id   {env.AWS_ACCESS_KEY_ID}
+		secret_access_key {env.AWS_SECRET_ACCESS_KEY}
+		region          {env.AWS_REGION}
+	}
+}
+
+# ── Gateway node services (same Docker network — proxy by container name) ──
+
+authentik.michaelgoldstein.co {
+	reverse_proxy authentik-server:9000
+}
+
+search.michaelgoldstein.co {
+	reverse_proxy searxng:8080
+}
+
+uptime.michaelgoldstein.co {
+	reverse_proxy uptime-kuma:3001
+}
+
+pihole.michaelgoldstein.co {
+	reverse_proxy pihole:80
+}
+
+# ── Agent node services (cross-node — proxy via LAN IP:port) ───────────────
+
+grafana.michaelgoldstein.co {
+	reverse_proxy 192.168.13.22:3100
+}
+
+webui.michaelgoldstein.co {
+	reverse_proxy 192.168.13.22:3000
+}
+
+prometheus.michaelgoldstein.co {
+	reverse_proxy 192.168.13.22:9090
+}
+
+litellm.michaelgoldstein.co {
+	reverse_proxy 192.168.13.22:4000
+}
+
+perplexica.michaelgoldstein.co {
+	reverse_proxy 192.168.13.22:3999
+}
+
+qdrant.michaelgoldstein.co {
+	reverse_proxy 192.168.13.22:6333
+}
+
+# agent-api.michaelgoldstein.co — add once Agent Orchestrator is built (Phase 2)
+# reverse_proxy 192.168.13.22:8100
+
+# ── NAS node services ────────────────────────────────────────────────────
+
+paperless.michaelgoldstein.co {
+	reverse_proxy 192.168.13.26:8000
+}
+
+paperless-ai.michaelgoldstein.co {
+	reverse_proxy 192.168.13.26:3030
+}

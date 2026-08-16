@@ -1,0 +1,28 @@
+# ============================================================
+# SearXNG settings — homelab AI agent
+# Install at: servers/gateway/searxng/settings.yml
+#
+# LAN-only instance: rate limiter / bot detection disabled since
+# it's not defending against public internet traffic. Extends
+# SearXNG's built-in defaults rather than redefining everything.
+# ============================================================
+
+use_default_settings: true
+
+general:
+  instance_name: "Homelab Search"
+
+server:
+  # Generate with: openssl rand -hex 32
+  # This file isn't passed through docker-compose's env interpolation,
+  # so paste the real value here directly (not a ${VAR} reference).
+  secret_key: "REPLACE_WITH_GENERATED_SECRET"
+  base_url: "https://search.michaelgoldstein.co/"
+  limiter: false        # LAN-only — no need for public rate-limiting/bot detection
+  image_proxy: true
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json             # required for Perplexica and mcp-searxng to query programmatically
