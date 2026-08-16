@@ -40,9 +40,15 @@ deploy_node() {
     ssh_cmd "$host" "mkdir -p ${DEPLOY_DIR}/${node_name}"
     
     # Sync files
-    rsync -avz --delete \
+    # Note: rsync can exit 23 (partial transfer) when it can't delete
+    # root-owned runtime files left by a container (e.g. a bind mount
+    # Docker auto-created). That's non-fatal — don't let `set -e` kill
+    # the rest of the deploy (.env sync, docker compose up) over it.
+    if ! rsync -avz --delete \
         "${PROJECT_ROOT}/servers/${node_dir}/" \
-        "${SSH_USER}@${host}:${DEPLOY_DIR}/${node_name}/"
+        "${SSH_USER}@${host}:${DEPLOY_DIR}/${node_name}/"; then
+        warn "rsync reported a partial transfer for ${node_name} — continuing anyway. Check for permission-denied lines above."
+    fi
     
     # Sync shared config
     rsync -avz \
