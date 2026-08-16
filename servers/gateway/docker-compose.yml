@@ -69,7 +69,7 @@ services:
       start_period: 10s
 
   authentik-server:
-    image: goauthentik/server:latest
+    image: ghcr.io/goauthentik/server:2026.5.2
     container_name: authentik
     restart: unless-stopped
     command: server
@@ -95,7 +95,7 @@ services:
         condition: service_healthy
 
   authentik-worker:
-    image: goauthentik/server:latest
+    image: ghcr.io/goauthentik/server:2026.5.2
     container_name: authentik-worker
     restart: unless-stopped
     command: worker
