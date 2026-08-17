@@ -28,7 +28,11 @@ uptime.michaelgoldstein.co {
 }
 
 pihole.michaelgoldstein.co {
-	reverse_proxy pihole:80
+	reverse_proxy pihole:80 {
+		# Pi-hole v6 only serves the web UI when Host matches webserver.domain (pi.hole).
+		# Override so Caddy forwards the expected host rather than the public subdomain.
+		header_up Host pi.hole
+	}
 }
 
 # ── Agent node services (cross-node — proxy via LAN IP:port) ───────────────

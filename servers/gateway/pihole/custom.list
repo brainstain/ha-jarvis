@@ -1,24 +1,21 @@
 # ============================================================
-# Pi-hole local DNS overrides
-# Split-horizon: these records only apply to clients using
-# Pi-hole as their resolver. Public DNS for michaelgoldstein.co
-# can point the same names elsewhere for off-network access.
+# DEPRECATED — Pi-hole v6 no longer reads this file.
 #
-# Install at: servers/gateway/pihole/custom.list
-# Mounted read-only into the pihole container in docker-compose.yml
+# Local DNS records moved to pihole.toml in Pi-hole v6, managed
+# via env vars in Docker deployments. The real source of truth
+# for these records is now the FTLCONF_dns_hosts environment
+# variable in servers/gateway/docker-compose.yml — update it
+# there, not here.
+#
+# This file is kept only as a historical reference for what
+# records exist; it has no effect on the running system.
 # ============================================================
 
-# ── Nodes ────────────────────────────────────────────────────
 192.168.13.29   gateway.michaelgoldstein.co
 192.168.13.22   agent.michaelgoldstein.co
 192.168.13.15   inference.michaelgoldstein.co
 192.168.13.26   nas.michaelgoldstein.co
 192.168.13.20   ha.michaelgoldstein.co
-
-# ── Services fronted by Caddy — all resolve to Gateway IP ───
-# Caddy terminates TLS here and proxies internally to the
-# correct backend node/port. Add more lines as new routes
-# are added to the Caddyfile.
 192.168.13.29   authentik.michaelgoldstein.co
 192.168.13.29   search.michaelgoldstein.co
 192.168.13.29   uptime.michaelgoldstein.co
@@ -31,4 +28,3 @@
 192.168.13.29   qdrant.michaelgoldstein.co
 192.168.13.29   paperless.michaelgoldstein.co
 192.168.13.29   paperless-ai.michaelgoldstein.co
-# 192.168.13.29 agent-api.michaelgoldstein.co   # add once Agent Orchestrator is deployed (Phase 2)
