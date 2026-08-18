@@ -67,9 +67,9 @@ qdrant.michaelgoldstein.co {
 # ── NAS node services ────────────────────────────────────────────────────
 
 paperless.michaelgoldstein.co {
-	reverse_proxy 192.168.13.26:8000
+	reverse_proxy 192.168.13.22:8000
 }
 
 paperless-ai.michaelgoldstein.co {
-	reverse_proxy 192.168.13.26:3030
+	reverse_proxy 192.168.13.22:3030
 }

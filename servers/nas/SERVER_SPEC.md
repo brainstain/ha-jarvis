@@ -1,107 +1,50 @@
 # Server Spec: Storage Node (Synology NAS)
 
-**Hardware:** Synology DiskStation, 16 TB usable storage  
-**Role:** Document management, media storage, backup target  
-**Always-on:** Yes  
-**Note:** Not a Proxmox VM — native Synology DSM with Docker (Container Manager)
+**Hardware:** Synology DiskStation, 16 TB usable storage
+**Role:** Storage and backup target only — no application containers run here
+**Always-on:** Yes
+**IP:** 192.168.13.12
 
 ---
 
-## Services
+## What Runs Here
 
-| Service | Image | Port | RAM | Purpose |
-|---------|-------|------|-----|---------|
-| Paperless-NGX | ghcr.io/paperless-ngx/paperless-ngx | 8000 | 1 GB | Document management |
-| Paperless PostgreSQL | postgres:16-alpine | 5432 | 200 MB | Paperless database |
-| Paperless Redis | redis:7-alpine | 6380 | 50 MB | Paperless task broker |
-| Paperless-AI | clusterzx/paperless-ai | 3030 | 200 MB | AI categorization + tagging |
+Nothing. The NAS is pure storage. Paperless-NGX and all associated services
+(postgres, redis, paperless-ai) run on the **Agent Node** (192.168.13.22).
 
-**Total estimated RAM:** ~1.5 GB
-
----
-
-## Paperless-NGX Configuration
-
-Paperless-NGX is the document ingestion and management layer. Documents are consumed from a watched folder, OCR'd, and stored with metadata. The RAG pipeline on the Agent Node indexes Paperless documents into Qdrant via the Paperless API.
-
-### Storage Paths
-
-| Path | Location | NFS Export | Purpose |
-|------|----------|------------|---------|
-| /data/paperless/media | NAS local | Yes (read-only to Agent) | Original + archived documents |
-| /data/paperless/consume | NAS local | Yes (read-write) | Drop folder for new documents |
-| /data/paperless/data | NAS local | **No** | SQLite/PostgreSQL data (local only) |
-| /data/paperless/export | NAS local | Yes (read-only) | Periodic exports for backup |
-
-### Metadata Schema for RAG Integration
-
-Every document in Paperless carries tags and custom fields that the RAG pipeline reads:
-
-```
-Custom Fields:
-  - scope: "family" | "personal"     (required)
-  - owner: user_id string            (required)
-  - rag_indexed: boolean             (set by RAG pipeline after indexing)
-  - rag_indexed_at: datetime         (last index timestamp)
-```
-
-**Tags for content categorization:**
-- `motorcycle`, `home`, `financial`, `medical`, `recipes`, `kid`, `work`
-- Tags drive RAG retrieval filtering (e.g., search "motorcycle" only queries motorcycle-tagged docs)
-
-### Paperless-AI
-
-Runs alongside Paperless-NGX. On document ingestion, it:
-1. Sends the OCR'd text to LiteLLM (via Agent Node)
-2. LLM suggests tags, title, correspondent, and custom field values
-3. Auto-applies suggestions (configurable confidence threshold)
-
-This means new documents are automatically categorized with scope and tags before the RAG pipeline indexes them.
+The NAS provides NFS exports that the agent node mounts for document storage.
 
 ---
 
 ## NFS Exports
 
-```bash
-# /etc/exports (Synology equivalent: Shared Folder > NFS Permissions)
+Configure in Synology DSM: **Control Panel > Shared Folder > Edit > NFS Permissions**
 
-# Paperless media — read-only for Agent Node RAG pipeline
-/volume1/paperless/media    agent.home.local(ro,sync,no_subtree_check)
+| Shared Folder | Mount Point (client) | Access | Consumers |
+|--------------|----------------------|--------|-----------|
+| /volume1/paperless/media | /mnt/nas/paperless/media | ro | Agent (RAG pipeline) |
+| /volume1/paperless/consume | /mnt/nas/paperless/consume | rw | Agent (drop folder) |
+| /volume1/paperless/export | /mnt/nas/paperless/export | ro | Agent (exports) |
+| /volume1/backups | /mnt/nas/backups | rw | All nodes |
+| /volume1/models | /mnt/nas/models | ro | Agent, Inference (archive only — copy to local NVMe before use) |
 
-# Paperless consume — write for any node to drop documents
-/volume1/paperless/consume  *.home.local(rw,sync,no_subtree_check)
+**NFS permission rule for each share:** Hostname = `192.168.13.0/24`, Squash = No mapping
 
-# Backups — write for all nodes
-/volume1/backups            *.home.local(rw,sync,no_subtree_check)
+Run `scripts/setup-nfs-mounts.sh` on agent and inference nodes to add fstab entries and mount.
 
-# Model archive — read-only, large file storage
-/volume1/models             inference.home.local(ro,sync,no_subtree_check)
-/volume1/models             agent.home.local(ro,sync,no_subtree_check)
-```
+---
 
-### Mount Options on Client Nodes
+## Critical Rules
 
-```bash
-# /etc/fstab on Agent/Inference/Gateway nodes
-
-# Read-only mounts — safe with soft,intr
-nas.home.local:/volume1/paperless/media  /mnt/nas/paperless-media  nfs  soft,intr,timeo=10,ro  0  0
-nas.home.local:/volume1/models           /mnt/nas/models           nfs  soft,intr,timeo=10,ro  0  0
-
-# Write mounts — for backups only (not databases)
-nas.home.local:/volume1/backups          /mnt/nas/backups          nfs  soft,intr,timeo=10,rw  0  0
-```
-
-**Critical rules:**
-- **NEVER** mount database directories (Qdrant, PostgreSQL, SQLite) over NFS
+- **NEVER** mount database directories (Qdrant, PostgreSQL, SQLite) over NFS — use local NVMe only
 - **NEVER** use `hard` mount option — processes hang indefinitely on NAS failure
-- Model weights should be **copied to local NVMe** for inference, not served over NFS
+- Model weights must be **copied to local NVMe** for inference, not served over NFS
 
 ---
 
 ## Backup Targets
 
-The NAS serves as the primary backup destination for all nodes:
+The NAS is the primary backup destination:
 
 | Source | Method | Schedule | NAS Path | Retention |
 |--------|--------|----------|----------|-----------|
@@ -109,64 +52,10 @@ The NAS serves as the primary backup destination for all nodes:
 | LangGraph SQLite | .backup + rsync | Hourly | /backups/langgraph/ | 7 days |
 | HA config | git bundle + rsync | Daily 3am | /backups/homeassistant/ | 90 days |
 | Paperless DB | pg_dump | Daily 1am | /backups/paperless-db/ | 30 days |
-| Paperless export | Built-in exporter | Weekly | /paperless/export/ | 12 weeks |
-| Docker volumes | Restic | Daily 4am | /backups/docker-volumes/ | 30 days |
 | Grafana data | rsync | Daily 3am | /backups/grafana/ | 30 days |
 | Authentik DB | pg_dump | Daily 1am | /backups/authentik-db/ | 30 days |
 | VM snapshots | Proxmox Backup Server | Weekly Sun 1am | /backups/pbs/ | 4 weeks |
 
-### Offsite Backup
+### Offsite
 
-Synology Hyper Backup or Restic on any node pushes weekly to:
-- **Backblaze B2** ($0.006/GB/month) — encrypted, versioned
-- Estimated monthly cost: ~$2-5 for critical data (excluding model weights)
-
----
-
-## Health Monitoring
-
-The NAS itself is monitored by Uptime Kuma on the Gateway:
-
-| Check | Target | Interval |
-|-------|--------|----------|
-| HTTP | Paperless-NGX :8000 | 60s |
-| TCP | NFS :2049 | 30s |
-| TCP | PostgreSQL :5432 | 30s |
-| ICMP | NAS IP | 15s |
-
-### NFS Health Script (runs on client nodes)
-
-```bash
-#!/bin/bash
-# /usr/local/bin/check-nfs-health.sh
-# Cron: */1 * * * * (every minute)
-
-NAS_MOUNTS=("/mnt/nas/paperless-media" "/mnt/nas/backups" "/mnt/nas/models")
-
-for mount in "${NAS_MOUNTS[@]}"; do
-    if ! timeout 5 stat "$mount" &>/dev/null; then
-        echo "$(date): NFS mount $mount is stale, attempting remount"
-        umount -l "$mount" 2>/dev/null
-        mount "$mount" 2>/dev/null
-        
-        if ! timeout 5 stat "$mount" &>/dev/null; then
-            echo "$(date): Remount failed for $mount"
-            # Send alert via HA webhook
-            curl -s -X POST "http://gateway.home.local:8123/api/webhook/nfs_failure" \
-                 -H "Content-Type: application/json" \
-                 -d "{\"mount\": \"$mount\"}"
-        fi
-    fi
-done
-```
-
----
-
-## Firewall Rules
-
-| From | To | Port | Purpose |
-|------|-----|------|---------|
-| Agent Node | Paperless-NGX | 8000 | Document API for RAG |
-| All nodes | NFS | 2049 | File shares |
-| All nodes | SMB | 445 | Windows/Mac file access |
-| Paperless-AI | Agent (LiteLLM) | 4000 | AI tagging inference |
+Synology Hyper Backup or Restic → Backblaze B2 ($0.006/GB/month, ~$2–5/month for critical data).

@@ -175,12 +175,12 @@ cmd_status() {
 
 cmd_pull_models() {
     info "Pulling models on Inference Engine (3090)..."
-    ssh_cmd "$INFERENCE_HOST" "docker exec ollama-primary ollama pull qwen3:30b-a3b-q5_K_M"
-    
+    ssh_cmd "$INFERENCE_HOST" "docker exec ollama-inference ollama pull qwen3:30b"
+
     info "Pulling models on Agent Node (1080 Ti)..."
-    ssh_cmd "$AGENT_HOST" "docker exec ollama-agent ollama pull qwen3:4b-q8_0"
+    ssh_cmd "$AGENT_HOST" "docker exec ollama-agent ollama pull qwen3:4b"
     ssh_cmd "$AGENT_HOST" "docker exec ollama-agent ollama pull nomic-embed-text:v1.5"
-    ssh_cmd "$AGENT_HOST" "docker exec ollama-agent ollama pull qwen3:8b-q8_0"
+    ssh_cmd "$AGENT_HOST" "docker exec ollama-agent ollama pull qwen3:8b"
     
     info "All models pulled."
 }

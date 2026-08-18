@@ -79,7 +79,7 @@ services:
   # fedirz/faster-whisper-server exposes an OpenAI-style REST API
   # (not Wyoming) and has been renamed upstream to "speaches".
   wyoming-whisper:
-    image: rhasspy/wyoming-faster-whisper:latest
+    image: rhasspy/wyoming-whisper:latest
     container_name: wyoming-whisper
     restart: unless-stopped
     ports:

@@ -1,0 +1,53 @@
+groups:
+  - name: gpu_temperature
+    rules:
+      # 3090 throttles at ~83°C — warn early
+      - alert: GPUTemperatureWarning
+        expr: nvidia_smi_temperature_gpu > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU temperature high ({{ $labels.node }})"
+          description: "GPU temperature {{ $value }}°C > 80°C — throttle risk. Consider power-capping via scripts/gpu-thermal-cap.sh"
+
+      # Above throttle threshold — act now
+      - alert: GPUTemperatureCritical
+        expr: nvidia_smi_temperature_gpu > 85
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GPU temperature critical ({{ $labels.node }})"
+          description: "GPU temperature {{ $value }}°C > 85°C — throttling in progress. Run: nvidia-smi -pl <wattage>"
+
+  - name: node_health
+    rules:
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage ({{ $labels.node }})"
+          description: "Memory {{ $value | humanizePercentage }} used (threshold 90%)"
+
+      - alert: DiskSpaceLow
+        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space low ({{ $labels.instance }})"
+          description: "{{ $labels.mountpoint }} is {{ $value | humanizePercentage }} full"
+
+  - name: service_availability
+    rules:
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Scrape target down: {{ $labels.job }}"
+          description: "{{ $labels.instance }} has been unreachable for 2 minutes"

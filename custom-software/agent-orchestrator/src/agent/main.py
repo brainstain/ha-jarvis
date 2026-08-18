@@ -12,7 +12,9 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from agent import __version__
 from agent.api.routes import router as api_router
 from agent.api.routes import set_tools
+from agent.api.websocket import ws_router
 from agent.config import get_settings
+from agent.integrations.ha import ha_router
 from agent.mcp.registry import MCPToolRegistry
 
 
@@ -71,6 +73,8 @@ app = FastAPI(
 )
 
 app.include_router(api_router)
+app.include_router(ws_router)
+app.include_router(ha_router)
 
 if get_settings().enable_metrics:
     Instrumentator().instrument(app).expose(app, endpoint="/metrics")

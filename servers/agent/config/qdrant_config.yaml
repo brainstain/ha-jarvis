@@ -1,0 +1,11 @@
+storage:
+  storage_path: /qdrant/storage
+  on_disk_payload: true   # CRITICAL: prevents OOM during indexing on 56 GB RAM VM
+  wal:
+    wal_capacity_mb: 64
+    wal_segments_ahead: 0
+
+service:
+  grpc_port: 6334
+  http_port: 6333
+  enable_cors: true

@@ -16,3 +16,4 @@ venv/
 *.swo
 .DS_Store
 .pytest_cache/
+QUESTIONS.md

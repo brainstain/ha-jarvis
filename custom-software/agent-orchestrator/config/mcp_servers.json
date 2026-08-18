@@ -1,5 +1,5 @@
 {
-  "$comment": "MCP servers available to the orchestrator. Names match the keys in src/agent/mcp/tool_filter.py CATEGORY_SERVERS, so 'categories' can be omitted; it is stated explicitly here for readability. Servers not yet built are shipped disabled so discovery stays clean.",
+  "$comment": "MCP servers available to the orchestrator. Servers disabled by default are ready to enable once deployed.",
   "servers": [
     {
       "name": "ha-mcp",
@@ -16,7 +16,7 @@
       "command": "python",
       "args": ["-m", "mcp_memory_scoped"],
       "categories": ["memory"],
-      "enabled": false,
+      "enabled": true,
       "timeout": 30
     },
     {
@@ -25,8 +25,17 @@
       "command": "python",
       "args": ["-m", "mcp_notifications"],
       "categories": ["notifications"],
-      "enabled": false,
-      "timeout": 30
+      "enabled": true,
+      "timeout": 15
+    },
+    {
+      "name": "mcp-workflow-status",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_workflow_status"],
+      "categories": ["notifications"],
+      "enabled": true,
+      "timeout": 10
     },
     {
       "name": "mcp-filesystem",
@@ -35,7 +44,57 @@
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/mnt/nas"],
       "categories": ["filesystem", "documents"],
       "enabled": false,
-      "timeout": 30
+      "timeout": 30,
+      "$comment": "Enable once NFS mounts are working and paperless Phase 3 is up"
+    },
+    {
+      "name": "mcp-fetch",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["mcp-fetch"],
+      "categories": ["search"],
+      "enabled": false,
+      "timeout": 30,
+      "$comment": "Enable once Phase 3 is deployed"
+    },
+    {
+      "name": "mcp-playwright",
+      "transport": "sse",
+      "url": "http://localhost:8101/sse",
+      "categories": ["browser"],
+      "enabled": false,
+      "timeout": 60,
+      "$comment": "Phase 2 — playwright-mcp container must be running"
+    },
+    {
+      "name": "mcp-calendar",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_calendar"],
+      "categories": ["calendar"],
+      "enabled": false,
+      "timeout": 20,
+      "$comment": "Phase 4 — CalDAV server URL needed, see QUESTIONS.md"
+    },
+    {
+      "name": "mcp-shopping-list",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_shopping_list"],
+      "categories": ["home_assistant"],
+      "enabled": false,
+      "timeout": 10,
+      "$comment": "Phase 4 — wraps HA shopping list API"
+    },
+    {
+      "name": "mcp-routines",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_routines"],
+      "categories": ["home_assistant"],
+      "enabled": false,
+      "timeout": 15,
+      "$comment": "Phase 4 — stores automation routines in Qdrant"
     }
   ],
   "tool_routing": {

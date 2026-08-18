@@ -28,7 +28,19 @@ from agent.core.output import OutputRouter
 from agent.core.router import MetaRouter
 from agent.core.safety import SafetyGuard
 from agent.core.session import SessionManager
+from agent.graphs.interactive import build_interactive_graph
+from agent.graphs.multistep import build_multistep_graph
+from agent.graphs.nodes import (
+    make_memory_lookup,
+    make_parallel_executor,
+    make_planner,
+    make_synthesizer,
+    make_tool_executor,
+)
+from agent.graphs.research import dispatch_research
 from agent.graphs.simple import build_simple_graph
+from agent.memory.backend import get_store
+from agent.memory.scoping import ScopedMemory
 from agent.mcp.registry import MCPToolRegistry, render_openai_tools
 from agent.mcp.tool_filter import ToolFilter
 
@@ -151,13 +163,34 @@ async def chat(request: ChatRequest) -> ChatResponse:
     if decision.graph == "simple":
         return await _run_simple(request, thread_id, decision, channel)
 
-    # multistep / research / interactive land with their node implementations.
+    if decision.graph == "multistep":
+        return await _run_multistep(request, thread_id, decision, channel)
+
+    if decision.graph == "interactive":
+        return await _run_interactive(request, thread_id, decision, channel)
+
+    if decision.graph == "research" or decision.execution_mode == "async":
+        # Already handled above (async branch), but guard against direct routing
+        task_id = _queue_task(thread_id, request)
+        await dispatch_research(
+            message=request.message,
+            user_id=request.user_id,
+            scope=request.scope,
+            thread_id=thread_id,
+            task_id=task_id,
+            tools_needed=decision.tools_needed,
+        )
+        return ChatResponse(
+            message="I'm researching that — I'll let you know when it's ready.",
+            thread_id=thread_id,
+            output_channel=channel,
+            task_id=task_id,
+            confidence=1.0,
+        )
+
     raise HTTPException(
         status_code=501,
-        detail=(
-            f"Graph '{decision.graph}' not yet wired. Routing works: "
-            f"intent={decision.intent}, tools={decision.tools_needed}, channel={channel}"
-        ),
+        detail=f"Unknown graph: {decision.graph!r}",
     )
 
 
@@ -188,9 +221,13 @@ async def _run_simple(
     system = SYNTHESIS_SYSTEM + (VOICE_HINT if speech else "")
 
     async def memory_lookup(state: dict[str, Any]) -> list[dict[str, Any]]:
-        # Recall arrives with mcp-memory-scoped; until that server exists the
-        # graph runs without it rather than blocking tool execution.
-        return []
+        try:
+            store = get_store()
+            scoped = ScopedMemory(store, auto_promote_family=settings.memory_auto_promote_family)
+            return await make_memory_lookup(scoped)(state)
+        except Exception as exc:  # noqa: BLE001 - memory failure never blocks a tool call
+            log.warning("memory_lookup_error", error=str(exc))
+            return []
 
     async def execute_tool(state: dict[str, Any]) -> dict[str, Any]:
         tools = _select_tools(decision)
@@ -288,6 +325,116 @@ async def _run_simple(
 
     return ChatResponse(
         message=final.get("response", ""),
+        thread_id=thread_id,
+        output_channel=channel,
+        tools_used=final.get("tools_used", []),
+        memory_updates=final.get("memory_updates", []),
+        confidence=final.get("confidence", 1.0),
+    )
+
+
+async def _run_multistep(
+    request: ChatRequest, thread_id: str, decision: RoutingDecision, channel: str
+) -> ChatResponse:
+    """Execute the plan-then-execute multistep graph."""
+    speech = OutputRouter.is_speech(channel)
+    tools = _select_tools(decision)
+
+    store = get_store()
+    scoped = ScopedMemory(store, auto_promote_family=settings.memory_auto_promote_family)
+    mem_lookup = make_memory_lookup(scoped)
+
+    mcp_reg = _mcp
+    tf = _tool_filter
+    step_executor = (
+        make_parallel_executor(mcp_reg, guard) if mcp_reg else (lambda s: {})
+    )
+    planner = make_planner(llm)
+    synthesizer = make_synthesizer(llm, speech=speech)
+
+    async def plan_steps(state: dict[str, Any]) -> list[dict[str, Any]]:
+        state_with_tools = {
+            **state,
+            "available_tools": tools,
+            "tools_needed": decision.tools_needed,
+        }
+        return await planner(state_with_tools)
+
+    graph = build_multistep_graph(
+        memory_lookup=mem_lookup,
+        plan_steps=plan_steps,
+        execute_step=step_executor,
+        synthesize=synthesizer,
+        guard=guard,
+    )
+    final = await graph.ainvoke(
+        {
+            "message": request.message,
+            "user_id": request.user_id,
+            "scope": request.scope,
+            "thread_id": thread_id,
+            "source": request.source,
+            "output_channel": channel,
+            "available_tools": tools,
+            "tools_needed": decision.tools_needed,
+        }
+    )
+    return ChatResponse(
+        message=final.get("response", ""),
+        thread_id=thread_id,
+        output_channel=channel,
+        tools_used=final.get("tools_used", []),
+        memory_updates=final.get("memory_updates", []),
+        confidence=final.get("confidence", 1.0),
+    )
+
+
+async def _run_interactive(
+    request: ChatRequest, thread_id: str, decision: RoutingDecision, channel: str
+) -> ChatResponse:
+    """Execute the HITL interactive graph with SQLite checkpointing."""
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+    speech = OutputRouter.is_speech(channel)
+    store = get_store()
+    scoped = ScopedMemory(store, auto_promote_family=settings.memory_auto_promote_family)
+
+    mcp_reg = _mcp
+    tool_exec = (
+        make_tool_executor(llm, mcp_reg, _tool_filter, guard, decision.tools_needed)
+        if mcp_reg and _tool_filter
+        else (lambda s: {})
+    )
+    synthesizer = make_synthesizer(llm, speech=speech)
+
+    async with AsyncSqliteSaver.from_conn_string(settings.langgraph_db) as checkpointer:
+        graph = build_interactive_graph(
+            memory_lookup=make_memory_lookup(scoped),
+            tool_executor=tool_exec,
+            synthesize=synthesizer,
+            guard=guard,
+            checkpointer=checkpointer,
+        )
+        config = {"configurable": {"thread_id": thread_id}}
+        final = await graph.ainvoke(
+            {
+                "message": request.message,
+                "user_id": request.user_id,
+                "scope": request.scope,
+                "thread_id": thread_id,
+                "source": request.source,
+                "output_channel": channel,
+                "tools_needed": decision.tools_needed,
+            },
+            config=config,
+        )
+
+    pending_q = final.get("pending_question")
+    if pending_q:
+        sessions.mark_pending(thread_id, request.user_id, pending_q)
+
+    return ChatResponse(
+        message=final.get("response", pending_q or ""),
         thread_id=thread_id,
         output_channel=channel,
         tools_used=final.get("tools_used", []),

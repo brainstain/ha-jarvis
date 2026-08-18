@@ -160,7 +160,7 @@ services:
         192.168.13.29 gateway.michaelgoldstein.co
         192.168.13.22 agent.michaelgoldstein.co
         192.168.13.15 inference.michaelgoldstein.co
-        192.168.13.26 nas.michaelgoldstein.co
+        192.168.13.12 nas.michaelgoldstein.co
         192.168.13.20 ha.michaelgoldstein.co
         192.168.13.29 authentik.michaelgoldstein.co
         192.168.13.29 search.michaelgoldstein.co

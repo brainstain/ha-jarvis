@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-memory-scoped"
+version = "0.1.0"
+description = "Family/personal scoped memory MCP server backed by Qdrant"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=2.0",
+    "qdrant-client>=1.9",
+    "httpx>=0.27",
+    "pydantic>=2.0",
+    "structlog>=24.0",
+]
+
+[project.scripts]
+mcp-memory-scoped = "mcp_memory_scoped.__main__:main"
