@@ -23,9 +23,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
+from string import Template
 from typing import Any, Literal
 
 import structlog
@@ -36,6 +38,13 @@ Transport = Literal["stdio", "sse"]
 
 DEFAULT_TIMEOUT = 30.0
 HEALTH_TIMEOUT = 5.0
+
+
+def _expand(value: str | None) -> str:
+    """Expand ${ENV_VAR} placeholders in string values from mcp_servers.json."""
+    if not value:
+        return value or ""
+    return Template(value).safe_substitute(os.environ)
 
 
 class MCPConfigError(ValueError):
@@ -111,8 +120,8 @@ class MCPServerConfig:
             args=[str(a) for a in args],
             env={str(k): str(v) for k, v in (data.get("env") or {}).items()},
             cwd=data.get("cwd"),
-            url=url,
-            headers={str(k): str(v) for k, v in (data.get("headers") or {}).items()},
+            url=_expand(url),
+            headers={str(k): _expand(str(v)) for k, v in (data.get("headers") or {}).items()},
             categories=categories,
             # `enabled` is ours; `always_available` is the spec's older spelling.
             enabled=bool(data.get("enabled", data.get("always_available", True))),

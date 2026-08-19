@@ -1,20 +1,20 @@
 """Multi-channel notification delivery MCP server.
 
-Delivers agent responses to users via four channels:
-  notify_ha     — Home Assistant persistent notification or mobile app push
-  notify_push   — ntfy.sh self-hosted push (phone/desktop)
-  notify_webui  — Open WebUI message injection (POST to internal API)
-  notify_tts    — HA TTS service (speaks result aloud on a media player)
+All delivery channels go through Home Assistant — no third-party services
+required. HA handles mobile push via the Companion app, persistent UI
+notifications, and TTS on any registered media player.
 
-Environment variables:
-  HA_URL            http://gateway.home.local:8123
-  HA_TOKEN          <PLACEHOLDER — see QUESTIONS.md>
-  NTFY_URL          http://gateway.home.local:PORT/topic
-                    (or https://ntfy.sh/your-topic — see QUESTIONS.md)
-  WEBUI_URL         http://open-webui:8080
-  WEBUI_API_KEY     sk-placeholder
-  TTS_ENTITY        media_player.living_room   (default media player for TTS)
-  TTS_PLATFORM      tts.google_translate_say   (HA TTS platform)
+Channels:
+  notify_user    — push to all of a user's HA mobile devices (discovered dynamically)
+  notify_all     — broadcast persistent notification visible to everyone in HA
+  notify_tts     — speak on any HA media player, optionally filtered by area/room
+  notify_webui   — inject a message into Open WebUI for a specific conversation
+
+Environment variables (passed via docker-compose, sourced from .env):
+  HA_URL          http://192.168.13.20:8123
+  HA_TOKEN        long-lived access token
+  WEBUI_URL       http://open-webui:8080
+  WEBUI_API_KEY   from Open WebUI admin panel
 """
 
 from __future__ import annotations
@@ -28,22 +28,83 @@ from fastmcp import FastMCP
 
 log = structlog.get_logger(__name__)
 
-HA_URL = os.environ.get("HA_URL", "http://gateway.home.local:8123")
-HA_TOKEN = os.environ.get("HA_TOKEN", "PLACEHOLDER_SEE_QUESTIONS_MD")
-NTFY_URL = os.environ.get("NTFY_URL", "")                        # e.g. http://gateway:2586/jarvis
-WEBUI_URL = os.environ.get("WEBUI_URL", "http://open-webui:8080")
+HA_URL = os.environ.get("HA_URL", "http://192.168.13.20:8123").rstrip("/")
+HA_TOKEN = os.environ.get("HA_TOKEN", "")
+WEBUI_URL = os.environ.get("WEBUI_URL", "http://open-webui:8080").rstrip("/")
 WEBUI_API_KEY = os.environ.get("WEBUI_API_KEY", "sk-placeholder")
-TTS_ENTITY = os.environ.get("TTS_ENTITY", "media_player.living_room")
-TTS_PLATFORM = os.environ.get("TTS_PLATFORM", "tts.google_translate_say")
 
 mcp = FastMCP("mcp-notifications")
 
 
 def _ha_headers() -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {HA_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    return {"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"}
+
+
+async def _ha_get(path: str) -> Any:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(f"{HA_URL}/api{path}", headers=_ha_headers())
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def _ha_post(path: str, body: dict[str, Any]) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(f"{HA_URL}/api{path}", headers=_ha_headers(), json=body)
+        if resp.status_code >= 400:
+            return {"error": resp.text[:300], "sent": False}
+        return {"sent": True}
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Discovery helpers
+# ──────────────────────────────────────────────────────────────────────
+
+
+async def _discover_notify_services() -> list[str]:
+    """Return all available notify.* service names from HA."""
+    try:
+        services = await _ha_get("/services")
+        notify = next((s for s in services if s.get("domain") == "notify"), {})
+        return list((notify.get("services") or {}).keys())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("notify_service_discovery_failed", error=str(exc))
+        return []
+
+
+async def _discover_media_players(area: str | None = None) -> list[dict[str, Any]]:
+    """Return media_player entities, optionally filtered by area name."""
+    try:
+        states = await _ha_get("/states")
+        players = [
+            s for s in states
+            if s.get("entity_id", "").startswith("media_player.")
+            and s.get("state") not in ("unavailable", "unknown")
+        ]
+        if area:
+            area_lower = area.lower()
+            players = [
+                p for p in players
+                if area_lower in (p.get("attributes", {}).get("friendly_name", "")).lower()
+                or area_lower in str(p.get("attributes", {}).get("area_id", "")).lower()
+            ]
+        return players
+    except Exception as exc:  # noqa: BLE001
+        log.warning("media_player_discovery_failed", error=str(exc))
+        return []
+
+
+async def _discover_tts_entities() -> list[str]:
+    """Return TTS provider entity IDs from HA."""
+    try:
+        states = await _ha_get("/states")
+        return [
+            s["entity_id"]
+            for s in states
+            if s.get("entity_id", "").startswith("tts.")
+        ]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("tts_discovery_failed", error=str(exc))
+        return ["tts.google_translate_say"]  # safe default
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -52,83 +113,118 @@ def _ha_headers() -> dict[str, str]:
 
 
 @mcp.tool()
-async def notify_ha(
+async def notify_user(
     message: str,
+    user_id: str,
     title: str = "Jarvis",
-    target: str = "persistent_notification",
 ) -> dict[str, Any]:
-    """Send a notification via Home Assistant.
+    """Push a notification to a specific user's mobile devices via HA Companion app.
 
-    target: HA service name under notify.* — e.g. "persistent_notification",
-    "mobile_app_michael_iphone", "notify". Defaults to persistent_notification.
+    Discovers all notify.mobile_app_* services whose name contains user_id,
+    and sends to all of them. Falls back to persistent_notification if no
+    mobile services are found for that user.
+
+    user_id: the person's name or ID as it appears in their HA mobile app
+    service name (e.g. "michael" for "notify.mobile_app_michael_iphone").
     """
-    service = f"notify.{target}" if not target.startswith("notify.") else target
-    domain, service_name = service.split(".", 1)
-    url = f"{HA_URL}/api/services/{domain}/{service_name}"
-    payload: dict[str, Any] = {"message": message, "title": title}
+    services = await _discover_notify_services()
+    user_lower = user_id.lower().replace(" ", "_")
+    mobile_services = [
+        s for s in services
+        if "mobile_app" in s and user_lower in s.lower()
+    ]
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(url, headers=_ha_headers(), json=payload)
-        if resp.status_code >= 400:
-            log.warning("notify_ha_failed", status=resp.status_code, body=resp.text[:200])
-            return {"sent": False, "error": resp.text[:200]}
-        return {"sent": True, "channel": "ha", "service": service}
+    if not mobile_services:
+        log.info("no_mobile_services_found", user_id=user_id, falling_back="persistent_notification")
+        return await _ha_post(
+            "/services/persistent_notification/create",
+            {"message": message, "title": title},
+        )
+
+    results = []
+    for svc in mobile_services:
+        result = await _ha_post(
+            f"/services/notify/{svc}",
+            {"message": message, "title": title},
+        )
+        results.append({"service": svc, **result})
+
+    sent = all(r.get("sent") for r in results)
+    return {"sent": sent, "targets": results}
 
 
 @mcp.tool()
-async def notify_push(
+async def notify_all(
     message: str,
     title: str = "Jarvis",
-    priority: str = "default",
-    tags: list[str] | None = None,
-    user_id: str | None = None,
 ) -> dict[str, Any]:
-    """Send a push notification via ntfy.
+    """Broadcast a persistent notification visible to all users in HA."""
+    return await _ha_post(
+        "/services/persistent_notification/create",
+        {"message": message, "title": title, "notification_id": "jarvis_broadcast"},
+    )
 
-    Requires NTFY_URL env var. priority: min|low|default|high|urgent.
-    tags are ntfy emoji tags (e.g. ["white_check_mark"]).
+
+@mcp.tool()
+async def notify_tts(
+    message: str,
+    area: str | None = None,
+    entity_id: str | None = None,
+) -> dict[str, Any]:
+    """Speak a message aloud via HA TTS on one or more media players.
+
+    If entity_id is given, speaks only on that player.
+    If area is given, speaks on all media players in that room.
+    If neither is given, speaks on ALL available media players.
+
+    Uses HA's tts.speak service with the first available TTS provider.
     """
-    if not NTFY_URL:
-        log.warning("ntfy_url_not_configured")
-        return {"sent": False, "error": "NTFY_URL not configured — see QUESTIONS.md"}
+    if entity_id:
+        targets = [entity_id]
+    else:
+        players = await _discover_media_players(area=area)
+        targets = [p["entity_id"] for p in players]
 
-    headers: dict[str, str] = {
-        "Title": title,
-        "Priority": priority,
-    }
-    if tags:
-        headers["Tags"] = ",".join(tags)
-    if user_id:
-        headers["X-User-Id"] = user_id
+    if not targets:
+        return {"sent": False, "error": "No media players found"}
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(NTFY_URL, content=message.encode(), headers=headers)
-        if resp.status_code >= 400:
-            return {"sent": False, "error": resp.text[:200]}
-        return {"sent": True, "channel": "push", "url": NTFY_URL}
+    tts_entities = await _discover_tts_entities()
+    tts_provider = tts_entities[0] if tts_entities else "tts.google_translate_say"
+
+    results = []
+    for target in targets:
+        result = await _ha_post(
+            "/services/tts/speak",
+            {
+                "entity_id": tts_provider,
+                "media_player_entity_id": target,
+                "message": message,
+            },
+        )
+        results.append({"entity": target, **result})
+
+    sent = any(r.get("sent") for r in results)
+    return {"sent": sent, "targets": results}
 
 
 @mcp.tool()
 async def notify_webui(
     message: str,
-    user_id: str = "jarvis",
     channel_id: str | None = None,
 ) -> dict[str, Any]:
-    """Inject a message into Open WebUI as an assistant response.
+    """Inject an assistant message into an Open WebUI channel or chat.
 
-    This hits Open WebUI's internal REST API to post a message to a channel
-    or conversation. Primarily used for async task results that arrive after
-    the user's session has already responded.
+    Used for async task results that arrive after the original WebSocket
+    session has closed. channel_id is the Open WebUI chat/channel UUID.
     """
-    # Open WebUI API: POST /api/v1/messages (channel messages)
-    # or POST /api/v1/chats/{id}/messages
     url = f"{WEBUI_URL}/api/v1/messages"
     payload: dict[str, Any] = {
         "role": "assistant",
         "content": message,
-        "channel_id": channel_id,
-        "user_id": user_id,
     }
+    if channel_id:
+        payload["channel_id"] = channel_id
+
     headers = {
         "Authorization": f"Bearer {WEBUI_API_KEY}",
         "Content-Type": "application/json",
@@ -141,25 +237,26 @@ async def notify_webui(
 
 
 @mcp.tool()
-async def notify_tts(
-    message: str,
-    entity_id: str | None = None,
-    language: str = "en",
-) -> dict[str, Any]:
-    """Speak a message aloud via Home Assistant TTS on a media player.
+async def list_notify_targets() -> dict[str, Any]:
+    """List available notification targets for routing decisions.
 
-    entity_id: HA media_player entity (defaults to TTS_ENTITY env var).
+    Returns mobile devices (per-user), media players (with area), and TTS providers.
+    The LLM uses this to choose the right channel for a given context.
     """
-    target_entity = entity_id or TTS_ENTITY
-    url = f"{HA_URL}/api/services/tts/speak"
-    payload = {
-        "entity_id": TTS_PLATFORM,
-        "message": message,
-        "language": language,
-        "media_player_entity_id": target_entity,
+    services = await _discover_notify_services()
+    mobile = [s for s in services if "mobile_app" in s]
+    players = await _discover_media_players()
+    tts = await _discover_tts_entities()
+
+    return {
+        "mobile_services": mobile,
+        "media_players": [
+            {
+                "entity_id": p["entity_id"],
+                "name": p.get("attributes", {}).get("friendly_name", p["entity_id"]),
+                "state": p.get("state"),
+            }
+            for p in players
+        ],
+        "tts_providers": tts,
     }
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(url, headers=_ha_headers(), json=payload)
-        if resp.status_code >= 400:
-            return {"sent": False, "error": resp.text[:200]}
-        return {"sent": True, "channel": "tts", "entity": target_entity}

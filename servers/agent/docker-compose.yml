@@ -146,6 +146,12 @@ services:
       MAX_EXECUTION_TIME: "120"
       TOKEN_BUDGET: "50000"
       LOG_LEVEL: "INFO"
+      # Home Assistant — passed through to MCP subprocesses (mcp-notifications, ha-mcp)
+      HA_URL: ${HA_URL}
+      HA_TOKEN: ${HA_TOKEN}
+      # Open WebUI — used by mcp-notifications notify_webui
+      WEBUI_URL: "http://open-webui:8080"
+      WEBUI_API_KEY: ${WEBUI_API_KEY:-sk-placeholder}
     networks:
       - agent
     extra_hosts:
@@ -184,6 +190,10 @@ services:
       LANGGRAPH_DB: "/data/langgraph/checkpoints.db"
       MAX_EXECUTION_TIME: "600"
       TOKEN_BUDGET: "100000"
+      HA_URL: ${HA_URL}
+      HA_TOKEN: ${HA_TOKEN}
+      WEBUI_URL: "http://open-webui:8080"
+      WEBUI_API_KEY: ${WEBUI_API_KEY:-sk-placeholder}
     networks:
       - agent
     extra_hosts:

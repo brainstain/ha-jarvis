@@ -4,8 +4,10 @@
     {
       "name": "ha-mcp",
       "transport": "sse",
-      "url": "http://gateway.home.local:8123/mcp",
-      "headers": {},
+      "url": "${HA_URL}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${HA_TOKEN}"
+      },
       "categories": ["home_assistant"],
       "enabled": true,
       "timeout": 30
@@ -74,7 +76,7 @@
       "categories": ["calendar"],
       "enabled": false,
       "timeout": 20,
-      "$comment": "Phase 4 — CalDAV server URL needed, see QUESTIONS.md"
+      "$comment": "Enable once Phase 2 is running; CALENDAR_PROVIDER=ha (default) uses HA Google Calendar"
     },
     {
       "name": "mcp-shopping-list",
