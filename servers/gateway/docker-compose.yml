@@ -161,7 +161,6 @@ services:
         192.168.13.22 agent.michaelgoldstein.co
         192.168.13.15 inference.michaelgoldstein.co
         192.168.13.12 nas.michaelgoldstein.co
-        192.168.13.20 ha.michaelgoldstein.co
         192.168.13.29 authentik.michaelgoldstein.co
         192.168.13.29 search.michaelgoldstein.co
         192.168.13.29 uptime.michaelgoldstein.co
@@ -174,6 +173,14 @@ services:
         192.168.13.29 qdrant.michaelgoldstein.co
         192.168.13.29 paperless.michaelgoldstein.co
         192.168.13.29 paperless-ai.michaelgoldstein.co
+        192.168.13.26 ha.michaelgoldstein.co
+        192.168.13.26 traefik.michaelgoldstein.co
+        192.168.13.26 nodered2.michaelgoldstein.co
+        192.168.13.26 photos.michaelgoldstein.co
+        192.168.13.26 proxmox.michaelgoldstein.co
+        192.168.13.26 syn.michaelgoldstein.co
+        192.168.13.26 ollama.michaelgoldstein.co
+        192.168.13.26 photosync.michaelgoldstein.co
     volumes:
       - pihole_etc:/etc/pihole
       - pihole_dnsmasq:/etc/dnsmasq.d

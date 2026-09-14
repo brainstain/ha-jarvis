@@ -94,7 +94,7 @@ services:
       - agent
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
 
   # ── Vector Database (Phase 2) ────────────────────────────────
   qdrant:
@@ -113,7 +113,7 @@ services:
     networks:
       - agent
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || exit 1"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -121,9 +121,7 @@ services:
 
   # ── Agent Orchestrator (Phase 2) ────────────────────────────
   agent-orchestrator:
-    build:
-      context: ../../custom-software/agent-orchestrator
-      dockerfile: Dockerfile
+    image: ghcr.io/brainstain/ha-jarvis/agent-orchestrator:latest
     container_name: agent-orchestrator
     restart: unless-stopped
     profiles: [phase2]
@@ -160,7 +158,7 @@ services:
       - "nas.home.local:${NAS_IP}"
     depends_on:
       litellm:
-        condition: service_healthy
+        condition: service_started
       qdrant:
         condition: service_healthy
     healthcheck:
@@ -172,9 +170,7 @@ services:
 
   # ── Async Task Worker (Phase 3) ──────────────────────────────
   celery-worker:
-    build:
-      context: ../../custom-software/agent-orchestrator
-      dockerfile: Dockerfile
+    image: ghcr.io/brainstain/ha-jarvis/agent-orchestrator:latest
     container_name: celery-worker
     restart: unless-stopped
     profiles: [phase3]
@@ -202,7 +198,7 @@ services:
       - "nas.home.local:${NAS_IP}"
     depends_on:
       litellm:
-        condition: service_healthy
+        condition: service_started
       qdrant:
         condition: service_healthy
 
@@ -225,7 +221,7 @@ services:
       - agent
     depends_on:
       litellm:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080"]
       interval: 30s

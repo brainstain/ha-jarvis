@@ -18,7 +18,7 @@ model_list:
   - model_name: "assistant"
     litellm_params:
       model: "ollama/qwen3:8b"
-      api_base: "http://localhost:11434"
+      api_base: "http://ollama:11434"
       timeout: 60
       stream: true
     model_info:
@@ -28,7 +28,7 @@ model_list:
   - model_name: "assistant-fast"
     litellm_params:
       model: "ollama/qwen3:4b"
-      api_base: "http://localhost:11434"
+      api_base: "http://ollama:11434"
       timeout: 30
       stream: true
 
@@ -36,7 +36,7 @@ model_list:
   - model_name: "embeddings"
     litellm_params:
       model: "ollama/nomic-embed-text:v1.5"
-      api_base: "http://localhost:11434"
+      api_base: "http://ollama:11434"
 
 router_settings:
   routing_strategy: "simple-shuffle"

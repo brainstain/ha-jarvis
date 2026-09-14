@@ -9,8 +9,7 @@ dependency on live services, which is what makes them unit-testable with fakes.
 """
 
 from agent.graphs.nodes.memory import make_memory_lookup
-from agent.graphs.nodes.planning import make_planner
-from agent.graphs.nodes.synthesis import make_synthesizer
+from agent.graphs.nodes.synthesis import make_planner, make_synthesizer
 from agent.graphs.nodes.tools import make_parallel_executor, make_tool_executor
 
 __all__ = [

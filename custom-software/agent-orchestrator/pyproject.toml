@@ -34,8 +34,8 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=75"]
-build-backend = "setuptools.backends._legacy:_Backend"
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -7,13 +7,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY pyproject.toml .
+# Install agent-orchestrator
+# Build context is custom-software/ so all sibling packages are accessible
+COPY agent-orchestrator/pyproject.toml .
+COPY agent-orchestrator/src/ src/
 RUN pip install --no-cache-dir .
 
-# Copy application code
-COPY src/ src/
-COPY config/ config/
+# Install MCP server packages — they run as stdio subprocesses of the agent
+COPY mcp-memory-scoped/ /tmp/mcp-memory-scoped/
+COPY mcp-notifications/ /tmp/mcp-notifications/
+COPY mcp-workflow-status/ /tmp/mcp-workflow-status/
+COPY mcp-calendar/ /tmp/mcp-calendar/
+RUN pip install --no-cache-dir \
+    /tmp/mcp-memory-scoped \
+    /tmp/mcp-notifications \
+    /tmp/mcp-workflow-status \
+    /tmp/mcp-calendar
+
+# Copy config
+COPY agent-orchestrator/config/ config/
 
 # Create data directories
 RUN mkdir -p /data/langgraph
