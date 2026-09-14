@@ -2,6 +2,12 @@
 # LiteLLM Proxy Configuration
 # Single inference endpoint with priority-based failover
 # ============================================================
+#
+# Qwen3 models use extended thinking by default which causes:
+#   - Empty content until thinking tokens are exhausted
+#   - Garbled streaming output from raw thinking token IDs
+# think: false disables thinking mode for direct, fast responses.
+# ============================================================
 
 model_list:
   # Primary reasoning — Qwen3-30B-A3B on RTX 3090
@@ -11,6 +17,8 @@ model_list:
       api_base: "http://inference.home.local:11434"
       timeout: 120
       stream: true
+      options:
+        think: false
     model_info:
       priority: 1
 
@@ -21,6 +29,8 @@ model_list:
       api_base: "http://ollama:11434"
       timeout: 60
       stream: true
+      options:
+        think: false
     model_info:
       priority: 2
 
@@ -31,6 +41,8 @@ model_list:
       api_base: "http://ollama:11434"
       timeout: 30
       stream: true
+      options:
+        think: false
 
   # Embeddings — nomic-embed-text on GTX 1080 Ti
   - model_name: "embeddings"
