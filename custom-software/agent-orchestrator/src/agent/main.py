@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from agent import __version__
+from agent.api.openai_compat import router as openai_router
 from agent.api.routes import router as api_router
 from agent.api.routes import set_tools
 from agent.api.websocket import ws_router
@@ -73,6 +74,7 @@ app = FastAPI(
 )
 
 app.include_router(api_router)
+app.include_router(openai_router)
 app.include_router(ws_router)
 app.include_router(ha_router)
 

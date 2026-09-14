@@ -213,7 +213,7 @@ services:
     volumes:
       - openwebui_data:/app/backend/data
     environment:
-      OPENAI_API_BASE_URL: "http://litellm:4000/v1"
+      OPENAI_API_BASE_URL: "http://agent-orchestrator:8100/v1"
       OPENAI_API_KEY: "sk-placeholder"
       WEBUI_AUTH: "false"
       ENABLE_OLLAMA_API: "false"
