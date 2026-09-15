@@ -14,9 +14,24 @@ class Settings(BaseSettings):
     litellm_base_url: str = "http://litellm:4000/v1"
     litellm_api_key: str = "sk-noauth"  # LiteLLM proxy key; not a real secret
     litellm_model: str = "assistant"
-    fast_model: str = "assistant-fast"   # used for simple/conversation graph synthesis
-    router_model: str = "assistant-fast"
-    router_max_tokens: int = 300          # routing JSON + thinking budget (think: true mode)
+    # "assistant-fast" (qwen3:4b, agent node's GTX 1080 Ti) was the original
+    # default for both of these, on the assumption that a smaller model on a
+    # secondary GPU would answer router/synthesis-shaped calls faster than
+    # the primary reasoning model. Verified directly against the live
+    # models (2026-09-15): assistant-fast with think:true reliably burns its
+    # entire token budget on invisible reasoning and returns empty content —
+    # 5/5 failures on real synthesis prompts, 100% fallback to FALLBACK on
+    # routing. assistant (qwen3:30b-A3B, RTX 3090) answered correctly on the
+    # same prompts, at comparable or better latency — the MoE architecture
+    # keeps its active-parameter cost close to a small dense model, on much
+    # faster hardware. "assistant-fast" stays defined in litellm_config.yaml
+    # for future use, but isn't a reliable choice for router/synthesis today.
+    fast_model: str = "assistant"   # used for simple/conversation graph synthesis
+    router_model: str = "assistant"
+    # Grammar-constrained JSON output (think:false, see core/router.py) — the
+    # model stops as soon as the object closes, so this is a ceiling, not a
+    # cost; ~90-120 tokens observed in practice for a full RoutingDecision.
+    router_max_tokens: int = 300
     tool_selection_max_tokens: int = 400  # tool-call JSON needs extra room for thinking
     synthesis_max_tokens: int = 300       # thinking + answer; too large causes thinking loop with think:true
     embeddings_model: str = "embeddings"

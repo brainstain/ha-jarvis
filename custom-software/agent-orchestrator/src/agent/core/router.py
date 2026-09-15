@@ -52,27 +52,21 @@ TOOL_CATEGORIES = [
     "filesystem",
 ]
 
-SYSTEM_PROMPT = """You are a routing classifier. Given the user message and context, \
-determine intent, required tool categories, and execution strategy. Respond in JSON only, \
-with no preamble and no markdown fences.
+# No JSON-formatting instructions here on purpose: grammar-constrained
+# decoding (_ROUTING_SCHEMA below) guarantees valid JSON at the sampling
+# level, so the prompt only needs to carry classification judgment, not
+# output-format boilerplate the model would otherwise have to "think"
+# about producing correctly.
+SYSTEM_PROMPT = """Classify the user's message for a home assistant.
 
-Schema:
-{{
-  "intent": "command|question|research|diagnostic|conversation",
-  "graph": "simple|multistep|research|interactive",
-  "tools_needed": [subset of {categories}, max 7],
-  "execution_mode": "sync|async",
-  "output_channel": "voice|webui|push",
-  "parallel_steps": true|false
-}}
-
-Guidance:
 - command: a single actuation ("turn off the lights") -> graph simple, sync
 - question: a lookup answerable in one or two tool calls -> graph simple, sync
 - research: open-ended investigation -> graph research, async, output push
 - diagnostic: needs back-and-forth with the user -> graph interactive, sync
 - conversation: chit-chat or memory recall, often no tools -> graph simple, sync
-- Requests arriving from voice should answer via voice unless async."""
+
+tools_needed is a subset of {categories}, max 7. Requests arriving from voice \
+should answer via voice unless async."""
 
 # Deterministic fallback when the router model is unavailable or misbehaves.
 FALLBACK = RoutingDecision(
@@ -83,6 +77,33 @@ FALLBACK = RoutingDecision(
     output_channel="webui",
     parallel_steps=False,
 )
+
+
+def _routing_schema() -> dict:
+    """JSON schema for Ollama's grammar-constrained decoding, built from
+    RoutingDecision itself so the two can't drift.
+
+    One patch is needed: pydantic can't infer an enum for tools_needed
+    (it's a plain list[str] — validated post-hoc against TOOL_CATEGORIES in
+    _parse), but grammar constraint needs it spelled out up front. Verified
+    directly against the live model: every already-enum-constrained field
+    (intent, graph, execution_mode, output_channel) came back clean, while
+    this one unconstrained free-string field was exactly where garbled
+    characters leaked in under think:false — see router latency
+    investigation, 2026-09-15.
+    """
+    schema = RoutingDecision.model_json_schema()
+    schema["properties"]["tools_needed"]["items"] = {
+        "type": "string",
+        "enum": TOOL_CATEGORIES,
+    }
+    # Require every field so the model always emits a complete object —
+    # pydantic's optional-with-default distinction doesn't matter here.
+    schema["required"] = list(schema["properties"].keys())
+    return schema
+
+
+_ROUTING_SCHEMA = _routing_schema()
 
 
 class MetaRouter:
@@ -158,7 +179,12 @@ class MetaRouter:
 
         payload = {
             "model": self.settings.router_model,
-            "temperature": 0,
+            # temperature 0 reproducibly made qwen3:4b emit an immediate
+            # stop token (0 completion tokens) on this classification
+            # prompt — verified directly against the live model. 0.2 is
+            # what every working sample used; see router latency
+            # investigation, 2026-09-15.
+            "temperature": 0.2,
             "max_tokens": self.settings.router_max_tokens,
             "messages": [
                 {
@@ -172,6 +198,13 @@ class MetaRouter:
                     ),
                 },
             ],
+            # think:true (the model's configured default) never terminates
+            # on this classification task — verified up to a 1500-token
+            # budget, always empty content. Grammar-constrained decoding
+            # via `format` doesn't need "thinking" to reach valid output,
+            # and disabling it is what makes this call fast (~3-4s) instead
+            # of either hanging or falling through to FALLBACK every time.
+            "extra_body": {"think": False, "format": _ROUTING_SCHEMA},
         }
 
         try:
