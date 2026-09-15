@@ -87,7 +87,7 @@ services:
     container_name: ollama-metrics
     restart: unless-stopped
     ports:
-      - "9091:9091"
+      - "9091:8080"  # image listens on 8080 internally, not 9091
     environment:
       OLLAMA_URL: "http://ollama:11434"
     networks:

@@ -58,3 +58,7 @@ router_settings:
   fallbacks: [{"assistant": ["assistant"]}]
   allowed_fails: 3
   cooldown_time: 60
+
+litellm_settings:
+  # Exposes request/latency/token/cost metrics on GET /metrics
+  callbacks: ["prometheus"]

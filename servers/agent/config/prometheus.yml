@@ -26,9 +26,12 @@ scrape_configs:
           node: agent
 
   # Agent node — Ollama metrics (1080 Ti)
+  # Container-to-container traffic goes straight to the container's real
+  # listening port (8080); the 9091 host mapping only applies to traffic
+  # from outside the "agent" Docker network (e.g. inference.home.local:9091).
   - job_name: ollama-agent
     static_configs:
-      - targets: ['ollama-metrics:9091']
+      - targets: ['ollama-metrics:8080']
         labels:
           node: agent
 
@@ -52,3 +55,34 @@ scrape_configs:
       - targets: ['inference.home.local:9091']
         labels:
           node: inference
+
+  # Gateway node — system metrics (Mini PC)
+  - job_name: node-gateway
+    static_configs:
+      - targets: ['gateway.home.local:9100']
+        labels:
+          node: gateway
+
+  # Agent node — Qdrant vector DB
+  - job_name: qdrant
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['qdrant:6333']
+        labels:
+          node: agent
+
+  # Agent node — LiteLLM proxy (requires litellm_settings.callbacks: [prometheus])
+  - job_name: litellm
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['litellm:4000']
+        labels:
+          node: agent
+
+  # Agent node — agent-orchestrator app metrics
+  - job_name: agent-orchestrator
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['agent-orchestrator:8100']
+        labels:
+          node: agent
