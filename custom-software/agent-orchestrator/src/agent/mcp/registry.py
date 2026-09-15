@@ -13,6 +13,7 @@ broken server must never cost us the tools of the ones that work.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,105 @@ def render_openai_tools(tools: list[ToolSchema]) -> list[dict[str, Any]]:
             }
         )
     return rendered
+
+
+# Parameters the caller already knows and injects server-side (never trusted
+# from model output, since they're identity/authorization-relevant). Hiding
+# them from the model also removes the single biggest source of
+# tool-selection failures under testing: the model endlessly reasoning about
+# a value ("user_id") it has no way to know.
+_INJECTED_PARAMS = {"user_id"}
+
+
+def render_tool_selection_schema(tools: list[ToolSchema]) -> dict[str, Any]:
+    """JSON schema for Ollama's grammar-constrained decoding: pick a tool
+    (enum-constrained) and a loose arguments object.
+
+    Native OpenAI-style function-calling (``tools=[...]``) does not
+    reliably produce ``tool_calls`` on this stack — verified directly
+    against the live model: even with the LiteLLM plumbing bug fixed
+    (ollama_chat/ prefix), real multi-tool schemas still frequently exhaust
+    the token budget mid-reasoning with no tool_calls emitted (0/5 in
+    testing). This mirrors router.py's `_routing_schema()` fix for the same
+    class of problem: grammar-constrained decoding guarantees a
+    syntactically valid, on-schema choice at the sampling level.
+
+    Arguments aren't schema-constrained per-tool — different tools' argument
+    shapes vary too much for one flat JSON schema to express as a strict
+    union, and the model isn't reliable enough yet to fill a conditional
+    schema correctly. The model gets each tool's parameters as text in the
+    prompt instead (see `render_tool_descriptions`), and arguments are
+    parsed the same tolerant way native tool_calls always were.
+    """
+    names = [t.name for t in tools]
+    return {
+        "type": "object",
+        "properties": {
+            "tool": {"type": "string", "enum": [*names, "none"]},
+            "arguments": {"type": "object"},
+        },
+        "required": ["tool", "arguments"],
+    }
+
+
+def render_tool_descriptions(tools: list[ToolSchema]) -> str:
+    """Human-readable tool listing for the grammar-constrained selection prompt.
+
+    Omits `_INJECTED_PARAMS` — the caller fills those in after parsing, so
+    the model is never asked to supply them.
+    """
+    lines: list[str] = []
+    for tool in tools:
+        props = tool.input_schema.get("properties") or {}
+        required = set(tool.input_schema.get("required") or [])
+        visible = {k: v for k, v in props.items() if k not in _INJECTED_PARAMS}
+        params = ", ".join(
+            f"{name}{'' if name in required else '?'}: {info.get('type', 'any')}"
+            for name, info in visible.items()
+        )
+        description = tool.description or f"{tool.name} (via {tool.server})"
+        lines.append(f"- {tool.name}({params}): {description}")
+    return "\n".join(lines)
+
+
+def parse_tool_selection(
+    content: str, tools: list[ToolSchema]
+) -> tuple[str | None, dict[str, Any]]:
+    """Parse grammar-constrained tool-selection output into (name, args).
+
+    Returns (None, {}) for "none", an unrecognized tool name, or content
+    that fails to parse — callers treat all three as "no tool selected"
+    rather than raising, same tolerance native tool_calls parsing always had.
+    """
+    cleaned = content.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("```")[1].removeprefix("json").strip()
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return None, {}
+
+    name = data.get("tool")
+    valid_names = {t.name for t in tools}
+    if name not in valid_names:
+        return None, {}
+
+    args = data.get("arguments")
+    if not isinstance(args, dict):
+        args = {}
+    return name, args
+
+
+def inject_identity_args(
+    tool: ToolSchema, args: dict[str, Any], user_id: str
+) -> dict[str, Any]:
+    """Fill in identity parameters the model was never shown, always
+    overriding any value the model tried to supply anyway (it's never
+    trustworthy for authorization-relevant fields)."""
+    props = tool.input_schema.get("properties") or {}
+    if "user_id" in props:
+        args["user_id"] = user_id
+    return args
 
 
 class MCPToolRegistry:
