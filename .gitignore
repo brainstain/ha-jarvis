@@ -17,3 +17,4 @@ venv/
 .DS_Store
 .pytest_cache/
 QUESTIONS.md
+custom-software/e2e/reports/
