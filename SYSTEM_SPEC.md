@@ -418,10 +418,13 @@ This enables:
 
 ### 8.2 Monitoring Stack
 
+Deployed and verified — see [`docs/MONITORING.md`](docs/MONITORING.md) for the full topology, dashboards, and known gaps.
+
 - **Uptime Kuma** on Gateway: HTTP/TCP health checks for all services, 60-second intervals
-- **Prometheus + Grafana** on Agent Node: deep metrics from vLLM (native), Ollama (via ollama-metrics sidecar), Qdrant, Redis, node-exporter
-- **nvidia_gpu_exporter**: GPU temp, utilization, VRAM on both GPU nodes
-- **Alert routing**: Grafana Alertmanager → HA notification service → phone push via ntfy
+- **Prometheus + Grafana** on Agent Node: scrapes node-exporter (all 3 nodes), nvidia_gpu_exporter (agent + inference), ollama-metrics sidecar (agent + inference), Qdrant, LiteLLM, and agent-orchestrator
+- **nvidia_gpu_exporter**: GPU temp, utilization, VRAM, power draw on both GPU nodes
+- **Grafana dashboards**: Homelab Overview, GPU & Inference, Agent Services
+- **Alerting gap**: `alerts.yml` has rules (GPU temp, memory, disk, scrape-target-down) but no Alertmanager is deployed yet, so firing alerts are visible in Prometheus's UI only — nothing pages or notifies. Wiring alert routing to the HA notification service is still open.
 
 ### 8.3 Backup Strategy
 
@@ -469,7 +472,7 @@ This enables:
 - Build remaining custom MCP servers
 - Deploy Playwright for browser automation
 - Build routine configuration system
-- Deploy monitoring stack (Uptime Kuma, Prometheus, Grafana)
+- Deploy Alertmanager and wire alert routing to the HA notification service (monitoring stack itself is done - see 8.2)
 - Implement backup automation
 - Load test concurrent users
 - Test: complete scenarios from simulation document
@@ -518,7 +521,7 @@ This enables:
 | 34 | No inference failover | LiteLLM proxy with priority routing | Agent | 1 |
 | 35 | HA silent when LLM down | Health-check automation + fallback pipeline | Gateway | 1 |
 | 36 | NAS stale mounts freeze containers | soft,intr NFS + local model storage | All | 1 |
-| 37 | No monitoring | Uptime Kuma + Prometheus + Grafana | GW+Agent | 1 |
+| 37 | No monitoring | Uptime Kuma + Prometheus + Grafana (done, see 8.2) | GW+Agent | 1 |
 | 38 | No backups | Restic + Qdrant snapshots + pg_dump | All | 1 |
 | 39 | OOM/memory leaks | OLLAMA_MAX_LOADED_MODELS=1 + memory limits | Inference | 1 |
 | 40 | Proxmox quorum with 4 nodes | QDevice on Raspberry Pi / Gateway | Gateway | 1 |
