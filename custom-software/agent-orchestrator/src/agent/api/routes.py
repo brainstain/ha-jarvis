@@ -319,41 +319,35 @@ async def _run_simple(
         if last is not None:
             confidence = 0.4 if last.get("error") else 0.9
 
-        text = ""
-        for _attempt in range(2):
-            # Attempt 0: think:true (LiteLLM config default) — fast clean content when
-            # thinking finishes in time. May exhaust max_tokens on a cold context.
-            # Attempt 1: think:false with larger budget — inline reasoning + </think> +
-            # answer; _strip_inline_reasoning extracts the clean answer after </think>.
-            if _attempt > 0:
-                extra: dict[str, Any] | None = {"think": False}
-                max_tok = settings.synthesis_max_tokens + 200  # extra room for reasoning
-            else:
-                extra = None
-                max_tok = settings.synthesis_max_tokens
-            try:
-                reply = await llm.complete(
-                    messages,
-                    model=settings.fast_model,
-                    max_tokens=max_tok,
-                    extra_body=extra,
-                )
-                text = (reply.get("content") or "").strip()
-            except (httpx.HTTPError, IndexError, KeyError, ValueError) as exc:
-                log.warning("synthesis_failed", error=str(exc), attempt=_attempt)
-                text = ""
-            # Reject text that looks like truncated inline reasoning rather than
-            # a real answer: no sentence-ending punctuation, or starts with a
-            # reasoning keyword (artifact of _strip_inline_reasoning's last-line fallback).
-            if text and (text[-1] in ".!?" or len(text) > 60) and not _REASONING_FRAGMENT.match(text):
-                if _attempt > 0:
-                    log.info("synthesis_recovered", attempt=_attempt)
-                break
-            if text:
-                log.warning("synthesis_fragment", text=text[:80], attempt=_attempt)
-                text = ""
-            else:
-                log.warning("synthesis_empty", has_tool_result=last is not None, attempt=_attempt)
+        # A single think:true attempt — no retry. A second attempt with
+        # think:false was tried here before and looked like a reasonable
+        # fallback (inline reasoning + </think> + answer), but verified
+        # directly against the live model it reproducibly returns garbage
+        # (random punctuation/digits, not degraded text) on this qwen3:4b
+        # deployment — a second broken call that only adds latency and
+        # risks passing corrupted text through the fragment check below,
+        # not a safety net. See router/synthesis latency investigation,
+        # 2026-09-15. think:true's own failure mode here is empty content,
+        # which the canned fallback below already covers safely.
+        try:
+            reply = await llm.complete(
+                messages,
+                model=settings.fast_model,
+                max_tokens=settings.synthesis_max_tokens,
+            )
+            text = (reply.get("content") or "").strip()
+        except (httpx.HTTPError, IndexError, KeyError, ValueError) as exc:
+            log.warning("synthesis_failed", error=str(exc))
+            text = ""
+
+        # Reject text that looks like truncated inline reasoning rather than
+        # a real answer: no sentence-ending punctuation, or starts with a
+        # reasoning keyword (artifact of _strip_inline_reasoning's last-line fallback).
+        if text and not ((text[-1] in ".!?" or len(text) > 60) and not _REASONING_FRAGMENT.match(text)):
+            log.warning("synthesis_fragment", text=text[:80])
+            text = ""
+        elif not text:
+            log.warning("synthesis_empty", has_tool_result=last is not None)
 
         if not text:
             text = "I couldn't complete that one." if last is None or last.get("error") else "Done."

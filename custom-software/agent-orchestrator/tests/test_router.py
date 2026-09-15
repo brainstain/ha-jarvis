@@ -1,10 +1,12 @@
 """Meta-router: JSON parsing, tool cap, and graceful fallback."""
 
+import json
+
 import httpx
 import pytest
 
 from agent.config import Settings
-from agent.core.router import FALLBACK, MetaRouter
+from agent.core.router import FALLBACK, TOOL_CATEGORIES, MetaRouter
 
 
 def make_router(handler) -> MetaRouter:
@@ -57,6 +59,32 @@ async def test_tools_capped_at_seven_and_unknowns_dropped():
     decision = await router.route("research something", {"source": "webui"})
     assert len(decision.tools_needed) == 7
     assert "bogus" not in decision.tools_needed
+
+
+@pytest.mark.asyncio
+async def test_llm_call_disables_thinking_and_constrains_to_schema():
+    """think:true never terminates on this classification task (verified
+    against the live model, empty content up to a 1500-token budget) and
+    temperature 0 reproducibly made qwen3:4b stop instantly with zero
+    tokens — so both must be set correctly on every outgoing request, not
+    just left as the model's configured defaults.
+    """
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        body = ('{"intent":"question","graph":"simple","tools_needed":[],'
+                '"execution_mode":"sync","output_channel":"webui","parallel_steps":false}')
+        return completion(body)
+
+    router = make_router(handler)
+    await router.route("when does the game start", {"source": "webui"})
+
+    assert captured["temperature"] == 0.2
+    assert captured["extra_body"]["think"] is False
+    schema = captured["extra_body"]["format"]
+    assert schema["properties"]["tools_needed"]["items"]["enum"] == TOOL_CATEGORIES
+    assert set(schema["required"]) == set(schema["properties"])
 
 
 @pytest.mark.asyncio
