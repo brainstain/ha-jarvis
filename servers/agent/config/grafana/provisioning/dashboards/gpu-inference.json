@@ -20,7 +20,7 @@
         "defaults": { "unit": "percent", "min": 0, "max": 100 },
         "overrides": []
       },
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
     },
     {
       "title": "GPU Temperature",
@@ -48,7 +48,7 @@
         },
         "overrides": []
       },
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
     },
     {
       "title": "VRAM Used",
@@ -78,7 +78,7 @@
           }
         ]
       },
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
     },
     {
       "title": "GPU Power Draw",
@@ -108,7 +108,7 @@
           }
         ]
       },
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
     },
     {
       "title": "Ollama Loaded Models",
@@ -126,7 +126,7 @@
         "defaults": { "unit": "short", "min": 0 },
         "overrides": []
       },
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
     },
     {
       "title": "PCIe Link Width (current / max)",
@@ -156,7 +156,7 @@
           }
         ]
       },
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
     }
   ],
   "schemaVersion": 39,

@@ -62,5 +62,22 @@ service is tracked as open work.
 - **LiteLLM's `/metrics` requires `litellm_settings.callbacks: ["prometheus"]`**
   in `litellm_config.yaml` — without it the endpoint exists but returns an
   empty body.
+- **The Prometheus datasource's UID is pinned to the auto-generated
+  `PBFA97CFB590B2093`, not a friendly name.** `datasource.yml` never set an
+  explicit `uid`, so Grafana generated a random one on first provisioning;
+  every dashboard panel's `datasource.uid` has to match it exactly or panels
+  silently show no data (Grafana finds the datasource fine via its own UI,
+  the mismatch only breaks the specific hardcoded reference in dashboard
+  JSON). Do **not** try to fix this by adding `uid: prometheus` to
+  `datasource.yml` and restarting — Grafana's provisioning reconciler treats
+  an in-place UID change on an existing datasource as "data source not
+  found" and crash-loops. If this ever needs to be cleaned up: set
+  `editable: true` in `datasource.yml`, redeploy, delete the datasource via
+  `DELETE /api/datasources/uid/<old-uid>`, then redeploy with the desired
+  pinned `uid` and `editable: false` — the datasource gets created fresh
+  instead of updated in place. Until then, any new dashboard panel must use
+  `"datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"}`
+  verbatim (check `GET /api/datasources` on the live instance if this ever
+  changes, e.g. after a `grafana_data` volume wipe).
 - Redis (gateway) and Caddy/Pi-hole/Authentik have no exporters — only
   covered indirectly via Uptime Kuma's HTTP checks and gateway's node-exporter.

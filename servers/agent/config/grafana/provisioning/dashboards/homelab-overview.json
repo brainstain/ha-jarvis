@@ -39,7 +39,7 @@
         "textMode": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"] }
       },
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
     },
     {
       "title": "GPU Temperature",
@@ -66,7 +66,7 @@
         },
         "overrides": []
       },
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
     },
     {
       "title": "GPU Memory Usage",
@@ -95,7 +95,7 @@
         },
         "overrides": []
       },
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
     },
     {
       "title": "Node CPU Usage",
@@ -116,7 +116,7 @@
         },
         "overrides": []
       },
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
     },
     {
       "title": "Node Memory Usage",
@@ -137,7 +137,7 @@
         },
         "overrides": []
       },
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
     },
     {
       "title": "Disk Usage",
@@ -166,7 +166,7 @@
         },
         "overrides": []
       },
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
     },
     {
       "title": "Ollama Loaded Models",
@@ -184,7 +184,7 @@
         "defaults": { "unit": "short", "min": 0 },
         "overrides": []
       },
-      "datasource": { "type": "prometheus", "uid": "prometheus" }
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }
     }
   ],
   "schemaVersion": 39,
@@ -195,5 +195,5 @@
   "timezone": "",
   "title": "Homelab Overview",
   "uid": "homelab-overview",
-  "version": 2
+  "version": 3
 }
