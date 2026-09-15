@@ -29,6 +29,23 @@ from agent.mcp.client import MCPClientHub, MCPServerConfig  # noqa: E402
 USER = "e2e-test-user"
 
 
+async def _warm(hub: MCPClientHub, perf, budgets, server: str) -> None:
+    """Pay the one-time subprocess-spawn + import + MCP-handshake cost up
+    front, timed and budgeted separately from the actual tool call below.
+
+    The orchestrator itself never pays this mid-request — it connects once
+    at startup (agent/main.py's lifespan) and reuses the session for the
+    life of the process — so folding cold-start into the per-call budget
+    would measure something no real user request ever experiences.
+    `hub.connect` is idempotent: a second call on an already-open session
+    just returns it, so calling this again inside the timed call is free.
+    """
+    async def connect():
+        return await hub.connect(server)
+
+    await perf.atimed(f"mcp/connect_{server}", connect, budget=budgets.mcp_cold_start)
+
+
 def _config(name: str, module: str, env: dict[str, str], timeout: float) -> MCPServerConfig:
     return MCPServerConfig(
         name=name,
@@ -71,6 +88,7 @@ async def hub(endpoints):
 
 async def test_memory_search_tool_call(hub, budgets, perf, reachability):
     require(reachability, "qdrant", "litellm")
+    await _warm(hub, perf, budgets, "mcp-memory-scoped")
 
     async def call():
         return await hub.call_tool(
@@ -87,6 +105,7 @@ async def test_memory_search_tool_call(hub, budgets, perf, reachability):
 async def test_memory_list_tools(hub, budgets, perf, reachability):
     """list_tools() is what the orchestrator calls at startup and for /health."""
     require(reachability, "qdrant", "litellm")
+    await _warm(hub, perf, budgets, "mcp-memory-scoped")
 
     async def call():
         return await hub.list_tools("mcp-memory-scoped")
@@ -97,6 +116,7 @@ async def test_memory_list_tools(hub, budgets, perf, reachability):
 
 async def test_notifications_list_targets(hub, budgets, perf, reachability):
     require(reachability, "home_assistant")
+    await _warm(hub, perf, budgets, "mcp-notifications")
 
     async def call():
         return await hub.call_tool("mcp-notifications", "list_notify_targets", {})
@@ -107,6 +127,7 @@ async def test_notifications_list_targets(hub, budgets, perf, reachability):
 
 async def test_workflow_list_pending(hub, budgets, perf, reachability):
     require(reachability, "orchestrator")
+    await _warm(hub, perf, budgets, "mcp-workflow-status")
 
     async def call():
         return await hub.call_tool("mcp-workflow-status", "workflow_list_pending", {"user_id": USER})

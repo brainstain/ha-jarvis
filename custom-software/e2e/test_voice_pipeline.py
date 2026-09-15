@@ -20,7 +20,7 @@ def test_whisper_describes_itself(endpoints, budgets, perf, reachability):
         budget=budgets.wyoming_describe,
     )
     assert info["type"] == "info"
-    assert "data" in info
+    assert info["data"]["asr"], "no ASR model reported — whisper has nothing loaded"
 
 
 def test_piper_describes_itself(endpoints, budgets, perf, reachability):
@@ -31,7 +31,7 @@ def test_piper_describes_itself(endpoints, budgets, perf, reachability):
         budget=budgets.wyoming_describe,
     )
     assert info["type"] == "info"
-    assert "data" in info
+    assert info["data"]["tts"], "no TTS voice reported — piper has nothing loaded"
 
 
 def test_openwakeword_describes_itself(endpoints, budgets, perf, reachability):
@@ -42,7 +42,7 @@ def test_openwakeword_describes_itself(endpoints, budgets, perf, reachability):
         budget=budgets.wyoming_describe,
     )
     assert info["type"] == "info"
-    assert "data" in info
+    assert info["data"]["wake"], "no wake model reported — openWakeWord has nothing loaded"
 
 
 def test_speechbrain_health(endpoints, budgets, perf, reachability):

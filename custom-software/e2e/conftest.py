@@ -63,7 +63,10 @@ def _probe_tcp(host: str, port: int, timeout: float = 3.0) -> bool:
 @pytest.fixture(scope="session")
 def reachability(endpoints: Endpoints) -> dict[str, bool]:
     checks: dict[str, bool] = {
-        "litellm": _probe_http(f"{endpoints.litellm_url}/health"),
+        # Not /health: LiteLLM's own /health does a deep per-deployment check
+        # and can hang for tens of seconds (or longer) against a cold model.
+        # /v1/models is what the orchestrator itself polls for liveness.
+        "litellm": _probe_http(f"{endpoints.litellm_url}/v1/models"),
         "qdrant": _probe_http(f"{endpoints.qdrant_url}/readyz"),
         "orchestrator": _probe_http(f"{endpoints.orchestrator_url}/health"),
         "open_webui": _probe_http(endpoints.open_webui_url),

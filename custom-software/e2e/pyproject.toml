@@ -29,6 +29,13 @@ mcp-servers = [
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+# Flat modules at the project root, not a package dir — tell setuptools
+# exactly what they are so it doesn't have to guess a layout. `pip install
+# -e .` only exists here to pull in dependencies for `pytest`, which finds
+# these same files via pythonpath below regardless of installation.
+py-modules = ["conftest", "endpoints", "perf", "wyoming"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["."]
