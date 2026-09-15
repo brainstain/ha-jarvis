@@ -14,7 +14,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from agent import __version__
 from agent.api.openai_compat import router as openai_router
-from agent.api.routes import router as api_router
+from agent.api.routes import SYNTHESIS_SYSTEM, router as api_router
 from agent.api.routes import set_tools
 from agent.api.websocket import ws_router
 from agent.config import get_settings
@@ -89,7 +89,11 @@ async def _warmup_models(settings, log) -> None:
     garbage output from qwen3:4b.
     """
     async with httpx.AsyncClient(timeout=120.0) as client:
-        # Fast model only — warms the local qwen3:4b without loading the 8b fallback.
+        # Fast model — two calls to prime both the base context and synthesis context.
+        # qwen3:4b with think:true allocates thinking tokens from max_tokens; the first
+        # call with a fresh context uses more thinking than subsequent cached calls.
+        # Pre-warming with the synthesis system prompt establishes the KV cache so the
+        # first real synthesis request doesn't exhaust its thinking budget.
         t0 = time.monotonic()
         try:
             resp = await client.post(
@@ -108,6 +112,30 @@ async def _warmup_models(settings, log) -> None:
             log.info("model_warmed", model=settings.fast_model, seconds=round(elapsed, 2))
         except Exception as exc:  # noqa: BLE001
             log.warning("model_warmup_failed", model=settings.fast_model, error=str(exc))
+
+        # Synthesis warmup — prime the synthesis prompt context so the KV cache is warm
+        # for the first real user synthesis call. qwen3:4b thinks more heavily on a cold
+        # context, often consuming the full token budget before generating an answer.
+        t0 = time.monotonic()
+        try:
+            resp = await client.post(
+                f"{settings.litellm_base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.litellm_api_key}"},
+                json={
+                    "model": settings.fast_model,
+                    "messages": [
+                        {"role": "system", "content": SYNTHESIS_SYSTEM},
+                        {"role": "user", "content": "hi"},
+                    ],
+                    "max_tokens": settings.synthesis_max_tokens,
+                    "temperature": 0,
+                },
+            )
+            resp.raise_for_status()
+            elapsed = time.monotonic() - t0
+            log.info("synthesis_context_warmed", model=settings.fast_model, seconds=round(elapsed, 2))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("synthesis_warmup_failed", model=settings.fast_model, error=str(exc))
 
         # Embedding model — nomic-embed-text cold start adds 7-10s to first request
         t0 = time.monotonic()

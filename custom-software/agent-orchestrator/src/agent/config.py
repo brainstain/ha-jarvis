@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     router_model: str = "assistant-fast"
     router_max_tokens: int = 300          # routing JSON + thinking budget (think: true mode)
     tool_selection_max_tokens: int = 400  # tool-call JSON needs extra room for thinking
-    synthesis_max_tokens: int = 250       # answer tokens; thinking is separate (think: true)
+    synthesis_max_tokens: int = 300       # thinking + answer; too large causes thinking loop with think:true
     embeddings_model: str = "embeddings"
 
     # ── Storage ──────────────────────────────────────────────

@@ -31,6 +31,8 @@ _tools_used = Counter(
     ["tool"],
 )
 
+import re as _re
+
 from agent import __version__
 from agent.api.schemas import (
     ChatRequest,
@@ -89,12 +91,18 @@ _tool_filter: ToolFilter | None = None
 
 MCP_HEALTH_TIMEOUT = 5.0
 
-SYNTHESIS_SYSTEM = (
-    "You are a home assistant. Respond with one or two sentences only. "
-    "Use the tool result if one was provided. Never explain your reasoning, "
-    "never repeat the question, and never describe the tool call."
+# Detects partial reasoning extracted as a "last line" by _strip_inline_reasoning.
+# Only matches phrases that are almost certainly mid-reasoning, not valid answers.
+_REASONING_FRAGMENT = _re.compile(
+    r"^(But (wait|note|remember)|Wait[,.]|Hmm[,.]|Let me (think|check|re|reconsider)|"
+    r"I need to|We need to|Actually,|Hold on)",
+    _re.IGNORECASE,
 )
-VOICE_HINT = " Answer in one spoken sentence — no lists, no markdown."
+
+SYNTHESIS_SYSTEM = (
+    "You are a home assistant. Answer in 1-2 sentences using any provided context."
+)
+VOICE_HINT = " One spoken sentence only — no lists or markdown."
 
 
 def set_tools(mcp: MCPToolRegistry | None) -> None:
@@ -311,19 +319,41 @@ async def _run_simple(
         if last is not None:
             confidence = 0.4 if last.get("error") else 0.9
 
-        try:
-            # Simple graph uses the fast model — qwen3:4b is already warm and
-            # handles conversational synthesis well. qwen3:30b is reserved for
-            # complex multistep and research graphs.
-            reply = await llm.complete(
-                messages,
-                model=settings.fast_model,
-                max_tokens=settings.synthesis_max_tokens,
-            )
-            text = (reply.get("content") or "").strip()
-        except (httpx.HTTPError, KeyError, ValueError) as exc:
-            log.warning("synthesis_failed", error=str(exc))
-            text = ""
+        text = ""
+        for _attempt in range(2):
+            # Attempt 0: think:true (LiteLLM config default) — fast clean content when
+            # thinking finishes in time. May exhaust max_tokens on a cold context.
+            # Attempt 1: think:false with larger budget — inline reasoning + </think> +
+            # answer; _strip_inline_reasoning extracts the clean answer after </think>.
+            if _attempt > 0:
+                extra: dict[str, Any] | None = {"think": False}
+                max_tok = settings.synthesis_max_tokens + 200  # extra room for reasoning
+            else:
+                extra = None
+                max_tok = settings.synthesis_max_tokens
+            try:
+                reply = await llm.complete(
+                    messages,
+                    model=settings.fast_model,
+                    max_tokens=max_tok,
+                    extra_body=extra,
+                )
+                text = (reply.get("content") or "").strip()
+            except (httpx.HTTPError, IndexError, KeyError, ValueError) as exc:
+                log.warning("synthesis_failed", error=str(exc), attempt=_attempt)
+                text = ""
+            # Reject text that looks like truncated inline reasoning rather than
+            # a real answer: no sentence-ending punctuation, or starts with a
+            # reasoning keyword (artifact of _strip_inline_reasoning's last-line fallback).
+            if text and (text[-1] in ".!?" or len(text) > 60) and not _REASONING_FRAGMENT.match(text):
+                if _attempt > 0:
+                    log.info("synthesis_recovered", attempt=_attempt)
+                break
+            if text:
+                log.warning("synthesis_fragment", text=text[:80], attempt=_attempt)
+                text = ""
+            else:
+                log.warning("synthesis_empty", has_tool_result=last is not None, attempt=_attempt)
 
         if not text:
             text = "I couldn't complete that one." if last is None or last.get("error") else "Done."

@@ -73,6 +73,7 @@ class LLMClient:
         model: str | None = None,
         temperature: float = 0.2,
         max_tokens: int = 800,
+        extra_body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return the assistant message dict. Raises on transport failure."""
         payload: dict[str, Any] = {
@@ -84,6 +85,8 @@ class LLMClient:
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
+        if extra_body:
+            payload["extra_body"] = extra_body
 
         client = self._client or httpx.AsyncClient(timeout=self.timeout)
         t0 = time.monotonic()
@@ -103,9 +106,25 @@ class LLMClient:
         used_model = model or self.settings.litellm_model
         log.debug("llm_call_done", model=used_model, seconds=round(elapsed, 2))
 
-        msg = data["choices"][0]["message"]
-        if msg.get("content"):
-            content = _THINK_RE.sub("", msg["content"]).strip()
+        choices = data.get("choices") or []
+        if not choices:
+            log.warning("llm_empty_choices", model=used_model, raw=str(data)[:200])
+            return {"role": "assistant", "content": ""}
+
+        msg = choices[0]["message"]
+        raw_content = msg.get("content") or ""
+        if not raw_content:
+            finish = choices[0].get("finish_reason", "unknown")
+            usage = data.get("usage", {})
+            log.warning(
+                "llm_empty_content",
+                model=used_model,
+                finish_reason=finish,
+                completion_tokens=usage.get("completion_tokens"),
+                max_tokens=max_tokens,
+            )
+        if raw_content:
+            content = _THINK_RE.sub("", raw_content).strip()
             content = _strip_inline_reasoning(content)
             msg = {**msg, "content": content}
         return msg
