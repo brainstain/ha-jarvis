@@ -16,8 +16,9 @@ class Settings(BaseSettings):
     litellm_model: str = "assistant"
     fast_model: str = "assistant-fast"   # used for simple/conversation graph synthesis
     router_model: str = "assistant-fast"
-    router_max_tokens: int = 150          # router output is always short JSON
-    synthesis_max_tokens: int = 150       # simple-graph synthesis; home answers are short
+    router_max_tokens: int = 300          # routing JSON + thinking budget (think: true mode)
+    tool_selection_max_tokens: int = 400  # tool-call JSON needs extra room for thinking
+    synthesis_max_tokens: int = 250       # answer tokens; thinking is separate (think: true)
     embeddings_model: str = "embeddings"
 
     # ── Storage ──────────────────────────────────────────────

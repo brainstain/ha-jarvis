@@ -257,7 +257,7 @@ async def _run_simple(
                 ],
                 tools=render_openai_tools(tools),
                 model=settings.fast_model,
-                max_tokens=settings.router_max_tokens,
+                max_tokens=settings.tool_selection_max_tokens,
             )
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             log.warning("tool_selection_failed", error=str(exc))

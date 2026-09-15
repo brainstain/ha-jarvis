@@ -23,43 +23,32 @@ _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 # qwen3 also leaks inline reasoning without think tags — multi-line blocks that
 # end with a clear final answer. We detect this by looking for a short sentence
 # after a block of reasoning (lines starting with reasoning keywords).
-_INLINE_REASONING_PREFIXES = (
-    "we are ", "i should ", "let me ", "the user ", "let's ", "since ", "now,",
-    "we need", "we can", "we have", "i need", "so we", "so i", "therefore",
-    "actually,", "however,", "wait,", "note:", "step ", "first,", "finally,",
-    "the tool", "we don't", "we want",
-)
-
 
 def _strip_inline_reasoning(text: str) -> str:
-    """Remove qwen3's visible reasoning prefix, keeping only the final answer.
+    """Extract the answer from qwen3's combined reasoning+answer output.
 
-    qwen3 with think:false sometimes outputs multi-line chain-of-thought text
-    before giving the actual answer. We detect this by splitting on blank lines
-    and discarding leading paragraphs that look like reasoning.
+    qwen3 with think:false outputs reasoning as plain text and ends the thinking
+    block with </think>, then gives the actual answer. We cut everything up to
+    and including </think> and return only the clean final answer.
+
+    If </think> is absent, the model reasoned inline without tags (budget was
+    too tight to finish). We fall back to the last non-empty line as a best
+    approximation of the intended answer.
     """
     if not text:
         return text
 
-    # Split into blank-line-separated blocks.
-    blocks = [b.strip() for b in re.split(r"\n\s*\n", text) if b.strip()]
-    if len(blocks) <= 1:
-        # Single paragraph — check if it's pure reasoning and trim to last sentence.
-        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-        if len(lines) > 3 and all(
-            ln.lower().startswith(_INLINE_REASONING_PREFIXES) for ln in lines[:-1]
-        ):
-            return lines[-1]
-        return text
+    # Primary case: qwen3 closed its thinking block — take the answer after it.
+    if "</think>" in text:
+        after = text.split("</think>", 1)[1].strip()
+        return after if after else text
 
-    # Find first block that doesn't look like reasoning.
-    for block in blocks:
-        first_line = block.splitlines()[0].lower().strip()
-        if not first_line.startswith(_INLINE_REASONING_PREFIXES):
-            return block
-
-    # All blocks looked like reasoning — fall back to last non-empty block.
-    return blocks[-1]
+    # Fallback: no closing tag means max_tokens cut off before the answer.
+    # Take the last sentence-ending line as the closest thing to a response.
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if lines:
+        return lines[-1]
+    return text
 
 log = structlog.get_logger(__name__)
 

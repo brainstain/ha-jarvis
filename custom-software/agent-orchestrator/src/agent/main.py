@@ -81,28 +81,33 @@ async def lifespan(app: FastAPI):
 
 
 async def _warmup_models(settings, log) -> None:
-    """Load each LLM and the embedding model into VRAM before serving traffic."""
+    """Load the fast LLM and embeddings into VRAM before serving traffic.
+
+    Only warms the fast model (qwen3:4b) locally — the primary 'assistant' model
+    (qwen3:30b) runs on the remote inference node and would trigger qwen3:8b as the
+    local fallback, consuming ~6 GB and leaving < 1 GB free, which causes VRAM-pressure
+    garbage output from qwen3:4b.
+    """
     async with httpx.AsyncClient(timeout=120.0) as client:
-        # Chat models
-        for model in list({settings.fast_model, settings.litellm_model}):
-            t0 = time.monotonic()
-            try:
-                resp = await client.post(
-                    f"{settings.litellm_base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {settings.litellm_api_key}"},
-                    json={
-                        "model": model,
-                        "messages": [{"role": "user", "content": "hi"}],
-                        "max_tokens": 1,
-                        "temperature": 0,
-                    },
-                )
-                resp.raise_for_status()
-                elapsed = time.monotonic() - t0
-                _model_warmup_seconds.labels(model=model).set(elapsed)
-                log.info("model_warmed", model=model, seconds=round(elapsed, 2))
-            except Exception as exc:  # noqa: BLE001
-                log.warning("model_warmup_failed", model=model, error=str(exc))
+        # Fast model only — warms the local qwen3:4b without loading the 8b fallback.
+        t0 = time.monotonic()
+        try:
+            resp = await client.post(
+                f"{settings.litellm_base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.litellm_api_key}"},
+                json={
+                    "model": settings.fast_model,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                    "temperature": 0,
+                },
+            )
+            resp.raise_for_status()
+            elapsed = time.monotonic() - t0
+            _model_warmup_seconds.labels(model=settings.fast_model).set(elapsed)
+            log.info("model_warmed", model=settings.fast_model, seconds=round(elapsed, 2))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("model_warmup_failed", model=settings.fast_model, error=str(exc))
 
         # Embedding model — nomic-embed-text cold start adds 7-10s to first request
         t0 = time.monotonic()

@@ -3,45 +3,50 @@
 # ============================================================
 #
 # Model tiers:
-#   assistant-fast  → qwen3:1.7b  (routing + simple synthesis, <2s)
-#   assistant       → qwen3:30b   (complex/research, priority 1)
-#                  → qwen3:8b    (fallback if inference unreachable)
+#   assistant-fast   → qwen3:4b  (local, routing + simple synthesis)
+#   assistant        → qwen3:30b (remote RTX 3090, complex/research)
+#   assistant-local  → qwen3:8b  (local GTX 1080 Ti, manual fallback only)
+#
+# qwen3:8b is NOT in the "assistant" pool because loading it alongside
+# qwen3:4b fills the GTX 1080 Ti (11 GB) and causes VRAM-pressure
+# garbage output from qwen3:4b. Use "assistant-local" only if the
+# inference node is confirmed unreachable.
 #
 # Qwen3 thinking mode: "think" is a TOP-LEVEL Ollama API parameter.
 # Use extra_body (not options.think) so LiteLLM passes it correctly.
 # ============================================================
 
 model_list:
-  # Fast: routing, tool selection, and simple-graph synthesis (Qwen3-4B)
+  # Fast: routing, tool selection, and simple-graph synthesis (Qwen3-4B local)
+  # think: true → Ollama separates thinking from content, so LiteLLM returns only
+  # the clean answer in content (not 400+ tokens of inline chain-of-thought).
+  # The agent strips any leaked <think> blocks in llm.py as a safety net.
   - model_name: "assistant-fast"
     litellm_params:
       model: "ollama/qwen3:4b"
       api_base: "http://ollama:11434"
       timeout: 30
       extra_body:
-        think: false
+        think: true
 
-  # Primary reasoning — Qwen3-30B-A3B on RTX 3090
+  # Primary reasoning — Qwen3-30B-A3B on remote RTX 3090
   - model_name: "assistant"
     litellm_params:
       model: "ollama/qwen3:30b"
       api_base: "http://inference.home.local:11434"
       timeout: 120
       extra_body:
-        think: false
-    model_info:
-      priority: 1
+        think: true
 
-  # Fallback reasoning — Qwen3-8B on GTX 1080 Ti
-  - model_name: "assistant"
+  # Manual fallback — Qwen3-8B on local GTX 1080 Ti.
+  # Do NOT use this in the "assistant" pool; it causes VRAM pressure with qwen3:4b.
+  - model_name: "assistant-local"
     litellm_params:
       model: "ollama/qwen3:8b"
       api_base: "http://ollama:11434"
       timeout: 90
       extra_body:
-        think: false
-    model_info:
-      priority: 2
+        think: true
 
   # Embeddings — nomic-embed-text on GTX 1080 Ti
   - model_name: "embeddings"
@@ -54,6 +59,5 @@ router_settings:
   num_retries: 2
   timeout: 120
   retry_after: 5
-  fallbacks: [{"assistant": ["assistant"]}]
   allowed_fails: 3
   cooldown_time: 60
