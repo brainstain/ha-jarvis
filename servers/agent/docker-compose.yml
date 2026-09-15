@@ -17,6 +17,7 @@ networks:
 volumes:
   qdrant_data:
   langgraph_data:
+  google_credentials:
   openwebui_data:
   ollama_models:
   prometheus_data:
@@ -129,6 +130,7 @@ services:
       - "8100:8100"
     volumes:
       - langgraph_data:/data/langgraph
+      - google_credentials:/app/.credentials
       - ./config/mcp_servers.json:/app/config/mcp_servers.json:ro
     environment:
       LITELLM_BASE_URL: "http://litellm:4000/v1"
@@ -149,6 +151,10 @@ services:
       # Open WebUI — used by mcp-notifications notify_webui
       WEBUI_URL: "http://open-webui:8080"
       WEBUI_API_KEY: ${WEBUI_API_KEY:-sk-placeholder}
+      # Google Workspace — passed through to the google-workspace MCP subprocess.
+      # Empty until set in .env; the server just fails discovery until then (see mcp_servers.json).
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
     networks:
       - agent
     extra_hosts:

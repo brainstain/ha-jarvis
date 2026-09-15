@@ -24,6 +24,10 @@ RUN pip install --no-cache-dir \
     /tmp/mcp-workflow-status \
     /tmp/mcp-calendar
 
+# workspace-mcp (PyPI, not a sibling package) — Gmail/Docs/Drive via Google OAuth.
+# Provides the `workspace-mcp` console script invoked from mcp_servers.json.
+RUN pip install --no-cache-dir workspace-mcp
+
 # Copy config
 COPY agent-orchestrator/config/ config/
 
