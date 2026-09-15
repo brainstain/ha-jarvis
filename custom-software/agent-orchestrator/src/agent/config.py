@@ -33,7 +33,13 @@ class Settings(BaseSettings):
     # cost; ~90-120 tokens observed in practice for a full RoutingDecision.
     router_max_tokens: int = 300
     tool_selection_max_tokens: int = 400  # tool-call JSON needs extra room for thinking
-    synthesis_max_tokens: int = 300       # thinking + answer; too large causes thinking loop with think:true
+    # 300 was tuned for LiteLLM's old "ollama/" provider (/api/generate,
+    # thinking leaked into plain content). Under "ollama_chat/" (/api/chat,
+    # see litellm_config.yaml), thinking goes to a separate field and the
+    # model routinely needs 200-450 tokens of it before any answer content
+    # — 300 measured a ~40% empty-content failure rate live. 700 gives
+    # headroom; the model stops as soon as it's done, so this is a ceiling.
+    synthesis_max_tokens: int = 700
     embeddings_model: str = "embeddings"
 
     # ── Storage ──────────────────────────────────────────────

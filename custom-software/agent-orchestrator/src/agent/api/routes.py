@@ -325,16 +325,15 @@ async def _run_simple(
         if last is not None:
             confidence = 0.4 if last.get("error") else 0.9
 
-        # A single think:true attempt — no retry. A second attempt with
-        # think:false was tried here before and looked like a reasonable
-        # fallback (inline reasoning + </think> + answer), but verified
-        # directly against the live model it reproducibly returns garbage
-        # (random punctuation/digits, not degraded text) on this qwen3:4b
-        # deployment — a second broken call that only adds latency and
-        # risks passing corrupted text through the fragment check below,
-        # not a safety net. See router/synthesis latency investigation,
-        # 2026-09-15. think:true's own failure mode here is empty content,
-        # which the canned fallback below already covers safely.
+        # A single think:true attempt — no retry. Its failure mode is empty
+        # content (budget exhausted mid-thought, see synthesis_max_tokens'
+        # comment in config.py), which the canned fallback below already
+        # covers safely. An earlier think:false retry attempt here was
+        # dropped based on findings against a model tier ("assistant-fast",
+        # qwen3:4b) that no longer exists (removed in the "assistant"-only
+        # config, PR #11) — worth re-evaluating think:false against the
+        # current "assistant" (qwen3:30b) tier if empty-content rate is
+        # still high after the budget fix.
         try:
             reply = await llm.complete(
                 messages,
