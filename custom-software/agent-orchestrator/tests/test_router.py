@@ -22,7 +22,11 @@ async def test_parses_clean_json():
     body = ('{"intent":"command","graph":"simple","tools_needed":["home_assistant"],'
             '"execution_mode":"sync","output_channel":"voice","parallel_steps":false}')
     router = make_router(lambda req: completion(body))
-    decision = await router.route("turn off the lights", {"source": "voice"})
+    # "please turn off..." rather than a bare imperative: the latter now
+    # matches _heuristic's _COMMAND_RE fast-path and never reaches this
+    # mocked LLM response at all — this test is specifically about JSON
+    # parsing, so it needs a message that actually goes to the LLM.
+    decision = await router.route("please turn off the lights", {"source": "voice"})
     assert decision.intent == "command"
     assert decision.graph == "simple"
     assert decision.tools_needed == ["home_assistant"]
@@ -33,7 +37,13 @@ async def test_strips_markdown_fences():
     body = ('```json\n{"intent":"question","graph":"simple","tools_needed":[],'
             '"execution_mode":"sync","output_channel":"webui","parallel_steps":false}\n```')
     router = make_router(lambda req: completion(body))
-    decision = await router.route("what time is it", {"source": "webui"})
+    # Pre-existing gap, unrelated to the command heuristic added alongside
+    # this fix: "what time is it" matches _SIMPLE_RE's "what time" prefix,
+    # so it was already short-circuiting to the heuristic FALLBACK and
+    # never reaching this mocked LLM response — silently not testing the
+    # fence-stripping this test is named for. Use a question _SIMPLE_RE
+    # doesn't recognize instead.
+    decision = await router.route("when does the game start", {"source": "webui"})
     assert decision.intent == "question"
 
 
@@ -80,3 +90,49 @@ async def test_async_keeps_push_channel_even_from_voice():
     router = make_router(lambda req: completion(body))
     decision = await router.route("deep research", {"source": "voice"})
     assert decision.output_channel == "push"
+
+
+def _fail_if_called(request):
+    raise AssertionError("router hit the LLM — heuristic should have short-circuited")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    [
+        "turn off the kitchen lights",
+        "turn on the living room lamp",
+        "lock the front door",
+        "unlock the back door",
+        "set the thermostat to 68",
+        "dim the bedroom lights",
+        "play some music",
+        "pause the music",
+        "stop the timer",
+    ],
+)
+async def test_command_heuristic_skips_llm_for_home_assistant_actuations(message):
+    router = make_router(_fail_if_called)
+    decision = await router.route(message, {"source": "voice"})
+    assert decision.intent == "command"
+    assert decision.tools_needed == ["home_assistant"]
+    assert decision.graph == "simple"
+    assert decision.output_channel == "voice"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    [
+        "please turn off the lights",  # polite phrasing isn't a bare imperative
+        "stop bothering me",  # bare "stop" without a media/timer object
+        "can you turn the lights off",  # verb isn't at the start
+    ],
+)
+async def test_command_heuristic_does_not_overreach(message):
+    """Phrasing outside the narrow imperative shape still goes to the LLM."""
+    body = ('{"intent":"command","graph":"simple","tools_needed":["home_assistant"],'
+            '"execution_mode":"sync","output_channel":"webui","parallel_steps":false}')
+    router = make_router(lambda req: completion(body))
+    decision = await router.route(message, {"source": "webui"})
+    assert decision.intent == "command"
