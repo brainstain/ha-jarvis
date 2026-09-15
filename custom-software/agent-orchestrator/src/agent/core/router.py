@@ -23,6 +23,21 @@ _SIMPLE_RE = re.compile(
     r"what('s| is) today|what day|good (morning|evening|afternoon|night))\b",
     re.IGNORECASE,
 )
+# Single home_assistant actuations phrased as an imperative at the start of
+# the message — the natural shape of a voice command ("turn off the kitchen
+# lights", "lock the front door"). Deliberately narrow: matched only at the
+# start, so a command verb mentioned mid-sentence in ordinary conversation
+# doesn't false-positive into skipping real classification.
+_COMMAND_RE = re.compile(
+    r"^(turn (on|off)|switch (on|off)|(dim|brighten) the|"
+    r"set (the )?(temperature|thermostat|brightness)|"
+    r"(lock|unlock) the|(open|close) the|"
+    r"(start|stop) the|"
+    # These verbs are common English outside a command context ("stop
+    # worrying"), so require a media/timer object — never bare.
+    r"(play|pause|resume|stop|skip) (the |some )?(music|song|playlist|track|timer))\b",
+    re.IGNORECASE,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -111,14 +126,19 @@ class MetaRouter:
     def _heuristic(self, message: str) -> RoutingDecision | None:
         """Return a decision instantly for obvious cases, bypassing the LLM.
 
-        Saves ~2s per request for greetings and simple questions.
-        Research-flavored phrasing always goes to the LLM.
+        Saves a full router-classification round trip for greetings, simple
+        questions, and single home_assistant actuations. Research-flavored
+        phrasing always goes to the LLM.
         """
         if _RESEARCH_RE.search(message):
             return None
         if _SIMPLE_RE.match(message.strip()):
             # Greetings and time queries need no tools — skip tool selection entirely.
             return FALLBACK.model_copy(update={"intent": "conversation", "tools_needed": []})
+        if _COMMAND_RE.match(message.strip()):
+            return FALLBACK.model_copy(
+                update={"intent": "command", "tools_needed": ["home_assistant"]}
+            )
         if len(message) < 60 and "?" in message and not _RESEARCH_RE.search(message):
             return FALLBACK.model_copy()
         return None
