@@ -62,7 +62,13 @@ from agent.graphs.research import dispatch_research
 from agent.graphs.simple import build_simple_graph
 from agent.memory.backend import get_store
 from agent.memory.scoping import ScopedMemory
-from agent.mcp.registry import MCPToolRegistry, render_openai_tools
+from agent.mcp.registry import (
+    MCPToolRegistry,
+    inject_identity_args,
+    parse_tool_selection,
+    render_tool_descriptions,
+    render_tool_selection_schema,
+)
 from agent.mcp.tool_filter import ToolFilter
 
 log = structlog.get_logger(__name__)
@@ -251,38 +257,38 @@ async def _run_simple(
             log.info("no_tools_available", categories=decision.tools_needed)
             return {}
 
+        # Native OpenAI-style function-calling (tools=[...]) doesn't
+        # reliably produce tool_calls on this stack — verified directly
+        # against the live model, even after fixing the LiteLLM ollama_chat/
+        # plumbing bug, real multi-tool schemas still exhausted the token
+        # budget mid-reasoning with no tool_calls emitted. Grammar-constrained
+        # decoding (same technique that fixed router.py) is reliable instead.
         try:
             message = await llm.complete(
                 [
                     {
                         "role": "system",
                         "content": (
-                            "Pick the single tool that answers the user's request, or "
-                            "answer directly if no tool fits."
+                            'Pick the single tool that answers the user\'s request, or '
+                            '"none" if no tool fits.\n\nAvailable tools:\n'
+                            + render_tool_descriptions(tools)
                         ),
                     },
                     {"role": "user", "content": request.message},
                 ],
-                tools=render_openai_tools(tools),
                 model=settings.fast_model,
                 max_tokens=settings.tool_selection_max_tokens,
+                extra_body={"think": False, "format": render_tool_selection_schema(tools)},
             )
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             log.warning("tool_selection_failed", error=str(exc))
             return {}
 
-        calls = message.get("tool_calls") or []
-        if not calls:
+        name, args = parse_tool_selection(message.get("content") or "", tools)
+        if name is None:
             return {}
-
-        call = calls[0]
-        name = call.get("function", {}).get("name", "")
-        try:
-            args = json.loads(call.get("function", {}).get("arguments") or "{}")
-        except json.JSONDecodeError:
-            args = {}
-        if not isinstance(args, dict):
-            args = {}
+        tool = next(t for t in tools if t.name == name)
+        args = inject_identity_args(tool, args, request.user_id)
 
         # Re-check: the breaker may have tripped between selection and now.
         if guard.check_circuit_breaker(name):

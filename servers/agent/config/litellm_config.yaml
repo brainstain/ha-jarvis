@@ -18,6 +18,13 @@
 #
 # Qwen3 thinking mode: "think" is a TOP-LEVEL Ollama API parameter.
 # Use extra_body (not options.think) so LiteLLM passes it correctly.
+#
+# Provider prefix: use "ollama_chat/", not "ollama/". LiteLLM's "ollama/"
+# prefix routes through Ollama's legacy /api/generate completion endpoint,
+# which does not support native tool-calling or the separate thinking
+# field — every tool-selection call silently came back with empty content
+# and no tool_calls, regardless of think:true/false. "ollama_chat/" uses
+# Ollama's native /api/chat endpoint, where both work correctly.
 # ============================================================
 
 model_list:
@@ -25,7 +32,7 @@ model_list:
   # selection, and synthesis for the whole agent, not just complex/research.
   - model_name: "assistant"
     litellm_params:
-      model: "ollama/qwen3:30b"
+      model: "ollama_chat/qwen3:30b"
       api_base: "http://inference.home.local:11434"
       timeout: 120
       extra_body:

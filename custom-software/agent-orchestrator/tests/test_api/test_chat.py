@@ -12,16 +12,12 @@ from tests.mcp_fakes import FakeCallResult, FakeHub, FakeSession, FakeTool, Text
 
 
 def tool_call(name, arguments):
+    """A grammar-constrained tool-selection response (see registry.py's
+    render_tool_selection_schema / parse_tool_selection) — not native
+    OpenAI-style tool_calls, which don't reliably work on this stack."""
     return {
         "role": "assistant",
-        "content": None,
-        "tool_calls": [
-            {
-                "id": "call_1",
-                "type": "function",
-                "function": {"name": name, "arguments": json.dumps(arguments)},
-            }
-        ],
+        "content": json.dumps({"tool": name, "arguments": arguments}),
     }
 
 
@@ -32,8 +28,8 @@ class ScriptedLLM:
         self.queue = list(messages)
         self.tools_seen = []
 
-    async def complete(self, messages, tools=None, **kwargs):
-        self.tools_seen.append(tools)
+    async def complete(self, messages, extra_body=None, **kwargs):
+        self.tools_seen.append(extra_body)
         if not self.queue:
             return {"role": "assistant", "content": "done"}
         outcome = self.queue.pop(0)
@@ -110,8 +106,9 @@ async def test_simple_graph_executes_a_tool_through_the_hub(ha_registry, monkeyp
     assert response.tools_used == ["ha-mcp__light_turn_off"]
     assert response.confidence == 0.9
     assert session.calls == [("light_turn_off", {"entity_id": "light.kitchen"})]
-    # The model only ever saw the home_assistant tools, rendered OpenAI-style.
-    names = [t["function"]["name"] for t in llm.tools_seen[0]]
+    # The model only ever saw the home_assistant tools, enum-constrained
+    # into the grammar-selection schema (see render_tool_selection_schema).
+    names = [n for n in llm.tools_seen[0]["format"]["properties"]["tool"]["enum"] if n != "none"]
     assert names == ["ha-mcp__climate_set", "ha-mcp__light_turn_off"]
 
 
@@ -144,7 +141,7 @@ async def test_open_circuit_hides_the_tool_from_the_model(ha_registry, monkeypat
     routes.guard.record_failure("ha-mcp__light_turn_off")
     try:
         await routes.chat(request())
-        names = [t["function"]["name"] for t in llm.tools_seen[0]]
+        names = [n for n in llm.tools_seen[0]["format"]["properties"]["tool"]["enum"] if n != "none"]
         assert names == ["ha-mcp__climate_set"]
     finally:
         routes.guard.record_success("ha-mcp__light_turn_off")

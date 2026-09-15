@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Callable
 
 import httpx
@@ -10,14 +9,20 @@ import structlog
 
 from agent.core.llm import LLMClient
 from agent.core.safety import SafetyGuard
-from agent.mcp.registry import MCPToolRegistry, render_openai_tools
+from agent.mcp.registry import (
+    MCPToolRegistry,
+    inject_identity_args,
+    parse_tool_selection,
+    render_tool_descriptions,
+    render_tool_selection_schema,
+)
 from agent.mcp.tool_filter import ToolFilter
 
 log = structlog.get_logger(__name__)
 
 _TOOL_SELECTION_SYSTEM = (
     "Pick the single tool that answers the user's request, "
-    "or answer directly if no tool fits."
+    'or "none" if no tool fits.'
 )
 
 
@@ -49,29 +54,36 @@ def make_tool_executor(
             lines = "\n".join(f"- {m['text']}" for m in memories[:3])
             mem_ctx = f"\nRelevant context from memory:\n{lines}"
 
+        # Grammar-constrained decoding, not native tools=[...] function-calling
+        # — see agent/api/routes.py's execute_tool() for why (native
+        # tool-calling doesn't reliably produce tool_calls on this stack).
         messages = [
-            {"role": "system", "content": _TOOL_SELECTION_SYSTEM + mem_ctx},
+            {
+                "role": "system",
+                "content": (
+                    _TOOL_SELECTION_SYSTEM
+                    + mem_ctx
+                    + "\n\nAvailable tools:\n"
+                    + render_tool_descriptions(usable)
+                ),
+            },
             {"role": "user", "content": state.get("message", "")},
         ]
 
         try:
-            msg = await llm.complete(messages, tools=render_openai_tools(usable))
+            msg = await llm.complete(
+                messages,
+                extra_body={"think": False, "format": render_tool_selection_schema(usable)},
+            )
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             log.warning("tool_selection_failed", error=str(exc))
             return {}
 
-        calls = msg.get("tool_calls") or []
-        if not calls:
+        name, args = parse_tool_selection(msg.get("content") or "", usable)
+        if name is None:
             return {}
-
-        fn = calls[0].get("function", {})
-        name = fn.get("name", "")
-        try:
-            args = json.loads(fn.get("arguments") or "{}")
-        except json.JSONDecodeError:
-            args = {}
-        if not isinstance(args, dict):
-            args = {}
+        tool = next(t for t in usable if t.name == name)
+        args = inject_identity_args(tool, args, state.get("user_id", ""))
 
         if guard.check_circuit_breaker(name):
             return {

@@ -20,8 +20,12 @@ from agent.mcp.client import (
 from agent.mcp.registry import (
     MCPToolRegistry,
     categories_for_server,
+    inject_identity_args,
+    parse_tool_selection,
     qualified_name,
     render_openai_tools,
+    render_tool_descriptions,
+    render_tool_selection_schema,
 )
 from tests.mcp_fakes import (
     CamelTool,
@@ -537,3 +541,85 @@ def test_rendered_names_are_valid_openai_function_names():
         ]
     )
     assert re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", rendered[0]["function"]["name"])
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Grammar-constrained tool selection (native tool_calls isn't reliable
+# on this stack — see docs/FOLLOWUP-memory-and-tool-calling.md)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _memory_tools():
+    from agent.mcp.tool_filter import ToolSchema
+
+    return [
+        ToolSchema(
+            name="memory_search",
+            server="mcp-memory-scoped",
+            category="memory",
+            description="Search memories.",
+            input_schema={
+                "type": "object",
+                "properties": {"query": {"type": "string"}, "user_id": {"type": "string"}},
+                "required": ["query", "user_id"],
+            },
+        ),
+        ToolSchema(
+            name="memory_confirm",
+            server="mcp-memory-scoped",
+            category="memory",
+            description="Confirm a pending memory.",
+            input_schema={
+                "type": "object",
+                "properties": {"memory_id": {"type": "string"}},
+                "required": ["memory_id"],
+            },
+        ),
+    ]
+
+
+def test_tool_selection_schema_enum_constrains_names_and_adds_none():
+    schema = render_tool_selection_schema(_memory_tools())
+    assert schema["properties"]["tool"]["enum"] == ["memory_search", "memory_confirm", "none"]
+    assert schema["required"] == ["tool", "arguments"]
+
+
+def test_tool_descriptions_omit_identity_params():
+    text = render_tool_descriptions(_memory_tools())
+    assert "user_id" not in text
+    assert "query" in text
+    assert "memory_id" in text
+
+
+def test_parse_tool_selection_recognizes_valid_tool():
+    name, args = parse_tool_selection(
+        '{"tool": "memory_search", "arguments": {"query": "trash day"}}', _memory_tools()
+    )
+    assert name == "memory_search"
+    assert args == {"query": "trash day"}
+
+
+def test_parse_tool_selection_rejects_unknown_tool():
+    name, args = parse_tool_selection(
+        '{"tool": "not_a_real_tool", "arguments": {}}', _memory_tools()
+    )
+    assert name is None
+    assert args == {}
+
+
+def test_parse_tool_selection_tolerates_garbage():
+    name, args = parse_tool_selection("not json at all", _memory_tools())
+    assert name is None
+    assert args == {}
+
+
+def test_inject_identity_args_overrides_model_supplied_user_id():
+    tools = _memory_tools()
+    args = inject_identity_args(tools[0], {"query": "x", "user_id": "hallucinated"}, "michael")
+    assert args["user_id"] == "michael"
+
+
+def test_inject_identity_args_skips_tools_without_user_id_param():
+    tools = _memory_tools()
+    args = inject_identity_args(tools[1], {"memory_id": "abc"}, "michael")
+    assert "user_id" not in args
