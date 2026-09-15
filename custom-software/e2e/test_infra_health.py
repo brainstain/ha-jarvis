@@ -10,10 +10,14 @@ from conftest import require
 
 
 def test_litellm_health(endpoints, budgets, perf, reachability):
+    """/health/liveliness, not /health — the plain /health endpoint does a
+    deep per-deployment check and can hang for a long time against a cold
+    model; liveliness is the fast "is the proxy process up" check.
+    """
     require(reachability, "litellm")
     resp, _ = perf.timed(
         "infra/litellm_health",
-        lambda: httpx.get(f"{endpoints.litellm_url}/health", timeout=5.0),
+        lambda: httpx.get(f"{endpoints.litellm_url}/health/liveliness", timeout=5.0),
         budget=budgets.health,
     )
     assert resp.status_code == 200
