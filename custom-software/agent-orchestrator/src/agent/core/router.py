@@ -107,7 +107,7 @@ _ROUTING_SCHEMA = _routing_schema()
 
 
 class MetaRouter:
-    """Fast classification using the assistant-fast model via LiteLLM.
+    """Fast intent classification via LiteLLM, ahead of the main agent graph.
 
     Runs before the main agent graph so that full tool schemas never enter the
     large model's context on simple requests.

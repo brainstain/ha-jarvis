@@ -133,7 +133,6 @@ services:
     environment:
       LITELLM_BASE_URL: "http://litellm:4000/v1"
       LITELLM_MODEL: "assistant"
-      ROUTER_MODEL: "assistant-fast"
       EMBEDDINGS_MODEL: "embeddings"
       QDRANT_HOST: "qdrant"
       QDRANT_PORT: "6333"
