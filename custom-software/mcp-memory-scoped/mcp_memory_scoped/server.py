@@ -114,9 +114,9 @@ async def memory_search(
     """
     client = await _client()
     vector = await _embed(query)
-    results = await client.search(
+    response = await client.query_points(
         COLLECTION,
-        query_vector=vector,
+        query=vector,
         query_filter=_scope_filter(user_id, scope),
         limit=limit,
         with_payload=True,
@@ -131,7 +131,7 @@ async def memory_search(
             "tags": (r.payload or {}).get("tags", []),
             "score": r.score,
         }
-        for r in results
+        for r in response.points
     ]
 
 
