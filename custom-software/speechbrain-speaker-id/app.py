@@ -109,12 +109,13 @@ async def enroll(user_id: str = Form(...), audio: UploadFile = File(...)) -> dic
 @app.post("/identify")
 async def identify(audio: UploadFile = File(...)) -> dict:
     vec = _embed(await audio.read())
-    hits = qdrant.search(
+    response = qdrant.query_points(
         collection_name=COLLECTION,
-        query_vector=vec.tolist(),
+        query=vec.tolist(),
         limit=1,
         with_payload=True,
     )
+    hits = response.points
     if not hits or hits[0].score < SIMILARITY_THRESHOLD:
         confidence = float(hits[0].score) if hits else 0.0
         return {"user_id": "unknown", "confidence": confidence}

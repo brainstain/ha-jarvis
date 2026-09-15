@@ -118,16 +118,16 @@ class QdrantMemoryStore:
     ) -> list[dict[str, Any]]:
         await self._ensure_collection()
         vector = await embed(query)
-        results = await self.client.search(
+        response = await self.client.query_points(
             self.collection,
-            query_vector=vector,
+            query=vector,
             query_filter=_to_qdrant_filter(scope_filter),
             limit=limit,
             with_payload=True,
         )
         return [
             {"id": str(r.id), "payload": r.payload or {}, "score": r.score}
-            for r in results
+            for r in response.points
         ]
 
     async def upsert(self, memory_id: str, text: str, payload: dict[str, Any]) -> str:
