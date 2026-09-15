@@ -32,7 +32,7 @@ def test_litellm_models_registered(endpoints, budgets, perf, reachability):
     )
     assert resp.status_code == 200
     models = {m["id"] for m in resp.json().get("data", [])}
-    for expected in ("assistant", "assistant-fast", "embeddings"):
+    for expected in ("assistant", "embeddings"):
         assert expected in models, f"{expected!r} missing from litellm_config.yaml model_list"
 
 

@@ -3,48 +3,31 @@
 # ============================================================
 #
 # Model tiers:
-#   assistant-fast   → qwen3:4b  (local, routing + simple synthesis)
-#   assistant        → qwen3:30b (remote RTX 3090, complex/research)
-#   assistant-local  → qwen3:8b  (local GTX 1080 Ti, manual fallback only)
+#   assistant   → qwen3:30b (remote RTX 3090, all routing/synthesis/reasoning)
 #
-# qwen3:8b is NOT in the "assistant" pool because loading it alongside
-# qwen3:4b fills the GTX 1080 Ti (11 GB) and causes VRAM-pressure
-# garbage output from qwen3:4b. Use "assistant-local" only if the
-# inference node is confirmed unreachable.
+# The agent node's GTX 1080 Ti previously ran two additional local tiers
+# (qwen3:4b "assistant-fast", qwen3:8b "assistant-local" as a manual
+# fallback). Both were removed 2026-09-15: qwen3:4b was empirically
+# unreliable for router/synthesis-shaped calls (think:true never
+# terminates on JSON classification; think:false returns garbage), and
+# testing qwen3:8b as a fallback caused ollama to hang loading it
+# alongside qwen3:4b, taking down the card for ~5 min and requiring two
+# container restarts to recover — it is not a safe fallback to invoke.
+# See agent-orchestrator git history (commit "Fix router/synthesis
+# reliability and route them off the broken 1080Ti tier") for details.
 #
 # Qwen3 thinking mode: "think" is a TOP-LEVEL Ollama API parameter.
 # Use extra_body (not options.think) so LiteLLM passes it correctly.
 # ============================================================
 
 model_list:
-  # Fast: routing, tool selection, and simple-graph synthesis (Qwen3-4B local)
-  # think: true → Ollama separates thinking from content, so LiteLLM returns only
-  # the clean answer in content (not 400+ tokens of inline chain-of-thought).
-  # The agent strips any leaked <think> blocks in llm.py as a safety net.
-  - model_name: "assistant-fast"
-    litellm_params:
-      model: "ollama/qwen3:4b"
-      api_base: "http://ollama:11434"
-      timeout: 30
-      extra_body:
-        think: true
-
-  # Primary reasoning — Qwen3-30B-A3B on remote RTX 3090
+  # Primary — Qwen3-30B-A3B on remote RTX 3090. Handles routing, tool
+  # selection, and synthesis for the whole agent, not just complex/research.
   - model_name: "assistant"
     litellm_params:
       model: "ollama/qwen3:30b"
       api_base: "http://inference.home.local:11434"
       timeout: 120
-      extra_body:
-        think: true
-
-  # Manual fallback — Qwen3-8B on local GTX 1080 Ti.
-  # Do NOT use this in the "assistant" pool; it causes VRAM pressure with qwen3:4b.
-  - model_name: "assistant-local"
-    litellm_params:
-      model: "ollama/qwen3:8b"
-      api_base: "http://ollama:11434"
-      timeout: 90
       extra_body:
         think: true
 
