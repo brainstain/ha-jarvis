@@ -79,6 +79,16 @@
       "$comment": "Enable once Phase 2 is running; CALENDAR_PROVIDER=ha (default) uses HA Google Calendar"
     },
     {
+      "name": "google-workspace",
+      "transport": "stdio",
+      "command": "workspace-mcp",
+      "args": ["--tool-tier", "core", "--tools", "gmail", "drive", "docs"],
+      "categories": ["google"],
+      "enabled": true,
+      "timeout": 30,
+      "$comment": "Gmail/Docs/Drive via taylorwilsdon/workspace-mcp (PyPI: workspace-mcp). Needs GOOGLE_OAUTH_CLIENT_ID/GOOGLE_OAUTH_CLIENT_SECRET in the container env (set in docker-compose.yml from .env) plus a one-time interactive OAuth consent — see docs/GOOGLE_WORKSPACE_MCP.md. Safe to leave enabled without credentials: discover() catches the failure per-server (registry.py) and the rest of the orchestrator boots normally; it just won't have Gmail/Docs/Drive tools until credentials + consent are done, and self-heals on the next request once they are, no restart needed."
+    },
+    {
       "name": "mcp-shopping-list",
       "transport": "stdio",
       "command": "python",
