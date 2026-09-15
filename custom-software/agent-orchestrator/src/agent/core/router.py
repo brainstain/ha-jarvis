@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import httpx
 import structlog
@@ -10,6 +11,18 @@ from pydantic import ValidationError
 
 from agent.api.schemas import RoutingDecision
 from agent.config import Settings
+
+# Patterns that indicate the user needs async research or a multi-step plan.
+_RESEARCH_RE = re.compile(
+    r"\b(research|investigate|find out|look into|summarize|compare|analyze|report)\b",
+    re.IGNORECASE,
+)
+# Simple greetings and quick questions that never need the LLM router.
+_SIMPLE_RE = re.compile(
+    r"^(hi|hello|hey|thanks|thank you|what time|what('s| is) the time|"
+    r"what('s| is) today|what day|good (morning|evening|afternoon|night))\b",
+    re.IGNORECASE,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -95,16 +108,38 @@ class MetaRouter:
             data["tools_needed"] = [t for t in data["tools_needed"] if t in TOOL_CATEGORIES][:7]
         return RoutingDecision.model_validate(data)
 
+    def _heuristic(self, message: str) -> RoutingDecision | None:
+        """Return a decision instantly for obvious cases, bypassing the LLM.
+
+        Saves ~2s per request for greetings and simple questions.
+        Research-flavored phrasing always goes to the LLM.
+        """
+        if _RESEARCH_RE.search(message):
+            return None
+        if _SIMPLE_RE.match(message.strip()):
+            # Greetings and time queries need no tools — skip tool selection entirely.
+            return FALLBACK.model_copy(update={"intent": "conversation", "tools_needed": []})
+        if len(message) < 60 and "?" in message and not _RESEARCH_RE.search(message):
+            return FALLBACK.model_copy()
+        return None
+
     async def route(self, message: str, user_context: dict) -> RoutingDecision:
         """Classify a message into intent, graph, tools, and execution strategy.
 
         Never raises: on any failure this returns the conservative FALLBACK so a
         router outage degrades to a simple sync answer rather than a 500.
         """
+        fast = self._heuristic(message)
+        if fast is not None:
+            log.debug("router_heuristic", message=message[:60])
+            if user_context.get("source") == "voice" and fast.execution_mode == "sync":
+                fast.output_channel = "voice"
+            return fast
+
         payload = {
             "model": self.settings.router_model,
             "temperature": 0,
-            "max_tokens": 300,
+            "max_tokens": self.settings.router_max_tokens,
             "messages": [
                 {
                     "role": "system",

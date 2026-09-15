@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 
+import httpx
 import structlog
 from fastapi import FastAPI
+from prometheus_client import Gauge
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from agent import __version__
@@ -17,6 +20,13 @@ from agent.api.websocket import ws_router
 from agent.config import get_settings
 from agent.integrations.ha import ha_router
 from agent.mcp.registry import MCPToolRegistry
+
+# Warmup gauge only; chat/tool metrics live in routes.py to avoid double-registration.
+_model_warmup_seconds = Gauge(
+    "agent_model_warmup_seconds",
+    "Last model warm-up latency per model",
+    ["model"],
+)
 
 
 def configure_logging(level: str) -> None:
@@ -59,11 +69,55 @@ async def lifespan(app: FastAPI):
     set_tools(mcp)
     log.info("mcp_ready", tools=len(mcp.tool_names), failed=sorted(mcp.failed))
 
+    # Warm up the LLM models so the first user request doesn't pay a cold-start
+    # penalty. Failures are non-fatal — the request will load the model lazily.
+    await _warmup_models(settings, log)
+
     yield
 
     set_tools(None)
     await mcp.close()
     log.info("orchestrator_stopping")
+
+
+async def _warmup_models(settings, log) -> None:
+    """Load each LLM and the embedding model into VRAM before serving traffic."""
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        # Chat models
+        for model in list({settings.fast_model, settings.litellm_model}):
+            t0 = time.monotonic()
+            try:
+                resp = await client.post(
+                    f"{settings.litellm_base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.litellm_api_key}"},
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": "hi"}],
+                        "max_tokens": 1,
+                        "temperature": 0,
+                    },
+                )
+                resp.raise_for_status()
+                elapsed = time.monotonic() - t0
+                _model_warmup_seconds.labels(model=model).set(elapsed)
+                log.info("model_warmed", model=model, seconds=round(elapsed, 2))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("model_warmup_failed", model=model, error=str(exc))
+
+        # Embedding model — nomic-embed-text cold start adds 7-10s to first request
+        t0 = time.monotonic()
+        try:
+            resp = await client.post(
+                f"{settings.litellm_base_url}/embeddings",
+                headers={"Authorization": f"Bearer {settings.litellm_api_key}"},
+                json={"model": settings.embeddings_model, "input": "warmup"},
+            )
+            resp.raise_for_status()
+            elapsed = time.monotonic() - t0
+            _model_warmup_seconds.labels(model=settings.embeddings_model).set(elapsed)
+            log.info("model_warmed", model=settings.embeddings_model, seconds=round(elapsed, 2))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("model_warmup_failed", model=settings.embeddings_model, error=str(exc))
 
 
 app = FastAPI(

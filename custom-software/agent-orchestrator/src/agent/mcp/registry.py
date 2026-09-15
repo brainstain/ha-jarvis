@@ -160,11 +160,21 @@ class MCPToolRegistry:
 
     # ── lookup + execution ───────────────────────────────────
     def resolve(self, name: str) -> tuple[str, str] | None:
-        """Map a qualified tool name back to ``(server, raw_tool_name)``."""
+        """Map a qualified or bare tool name back to ``(server, raw_tool_name)``.
+
+        The LLM sometimes drops the server prefix (e.g. "memory_search" instead
+        of "mcp-memory-scoped__memory_search"). We try exact match first, then
+        fall back to any registered tool whose raw name matches.
+        """
         schema = self._by_name.get(name)
-        if schema is None:
-            return None
-        return schema.server, name[len(schema.server) + len(QUALIFIER) :]
+        if schema is not None:
+            return schema.server, name[len(schema.server) + len(QUALIFIER) :]
+        # Bare-name fallback: find first registered tool ending with QUALIFIER+name
+        suffix = QUALIFIER + name
+        for qualified, s in self._by_name.items():
+            if qualified.endswith(suffix):
+                return s.server, name
+        return None
 
     def get(self, name: str) -> ToolSchema | None:
         return self._by_name.get(name)

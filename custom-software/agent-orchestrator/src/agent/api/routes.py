@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -11,6 +12,24 @@ from typing import Any
 import httpx
 import structlog
 from fastapi import APIRouter, HTTPException
+from prometheus_client import Counter, Histogram
+
+_chat_requests = Counter(
+    "agent_chat_requests_total",
+    "Total chat requests by intent/graph/channel",
+    ["intent", "graph", "channel"],
+)
+_chat_latency = Histogram(
+    "agent_chat_latency_seconds",
+    "End-to-end chat latency",
+    ["graph"],
+    buckets=[1, 2, 5, 10, 20, 30, 60],
+)
+_tools_used = Counter(
+    "agent_tools_used_total",
+    "MCP tool invocations",
+    ["tool"],
+)
 
 from agent import __version__
 from agent.api.schemas import (
@@ -71,10 +90,11 @@ _tool_filter: ToolFilter | None = None
 MCP_HEALTH_TIMEOUT = 5.0
 
 SYNTHESIS_SYSTEM = (
-    "You are a home assistant. Answer the user from the tool result you are given. "
-    "Be direct and specific; never describe the tool or the mechanics of the call."
+    "You are a home assistant. Respond with one or two sentences only. "
+    "Use the tool result if one was provided. Never explain your reasoning, "
+    "never repeat the question, and never describe the tool call."
 )
-VOICE_HINT = " Your answer is spoken aloud: one or two short sentences, no lists or markup."
+VOICE_HINT = " Answer in one spoken sentence — no lists, no markdown."
 
 
 def set_tools(mcp: MCPToolRegistry | None) -> None:
@@ -150,6 +170,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         channel=channel,
     )
 
+    _t0 = time.monotonic()
     if decision.execution_mode == "async":
         task_id = _queue_task(thread_id, request)
         return ChatResponse(
@@ -160,38 +181,25 @@ async def chat(request: ChatRequest) -> ChatResponse:
             confidence=1.0,
         )
 
+    _chat_requests.labels(
+        intent=decision.intent, graph=decision.graph, channel=channel
+    ).inc()
+
+    result: ChatResponse
     if decision.graph == "simple":
-        return await _run_simple(request, thread_id, decision, channel)
+        result = await _run_simple(request, thread_id, decision, channel)
+    elif decision.graph == "multistep":
+        result = await _run_multistep(request, thread_id, decision, channel)
+    elif decision.graph == "interactive":
+        result = await _run_interactive(request, thread_id, decision, channel)
+    else:
+        raise HTTPException(status_code=501, detail=f"Unknown graph: {decision.graph!r}")
 
-    if decision.graph == "multistep":
-        return await _run_multistep(request, thread_id, decision, channel)
+    for tool in result.tools_used or []:
+        _tools_used.labels(tool=tool).inc()
+    _chat_latency.labels(graph=decision.graph).observe(time.monotonic() - _t0)
+    return result
 
-    if decision.graph == "interactive":
-        return await _run_interactive(request, thread_id, decision, channel)
-
-    if decision.graph == "research" or decision.execution_mode == "async":
-        # Already handled above (async branch), but guard against direct routing
-        task_id = _queue_task(thread_id, request)
-        await dispatch_research(
-            message=request.message,
-            user_id=request.user_id,
-            scope=request.scope,
-            thread_id=thread_id,
-            task_id=task_id,
-            tools_needed=decision.tools_needed,
-        )
-        return ChatResponse(
-            message="I'm researching that — I'll let you know when it's ready.",
-            thread_id=thread_id,
-            output_channel=channel,
-            task_id=task_id,
-            confidence=1.0,
-        )
-
-    raise HTTPException(
-        status_code=501,
-        detail=f"Unknown graph: {decision.graph!r}",
-    )
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -248,6 +256,8 @@ async def _run_simple(
                     {"role": "user", "content": request.message},
                 ],
                 tools=render_openai_tools(tools),
+                model=settings.fast_model,
+                max_tokens=settings.router_max_tokens,
             )
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             log.warning("tool_selection_failed", error=str(exc))
@@ -280,26 +290,36 @@ async def _run_simple(
         calls = state.get("tool_calls", [])
         last = calls[-1] if calls else None
 
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": request.message},
-        ]
+        # Put tool context in the user turn so qwen3 treats it as input, not
+        # as prior assistant speech (which triggers inline reasoning loops).
         if last is not None:
             outcome = (
                 f"error: {last['error']}"
                 if last.get("error")
                 else json.dumps(last.get("result"), default=str)
             )
-            messages.append(
-                {"role": "assistant", "content": f"Tool {last.get('tool')} returned {outcome}"}
-            )
+            user_content = f"{request.message}\n\n[Tool result: {outcome}]"
+        else:
+            user_content = request.message
+
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_content},
+        ]
 
         confidence = 0.7
         if last is not None:
             confidence = 0.4 if last.get("error") else 0.9
 
         try:
-            reply = await llm.complete(messages)
+            # Simple graph uses the fast model — qwen3:4b is already warm and
+            # handles conversational synthesis well. qwen3:30b is reserved for
+            # complex multistep and research graphs.
+            reply = await llm.complete(
+                messages,
+                model=settings.fast_model,
+                max_tokens=settings.synthesis_max_tokens,
+            )
             text = (reply.get("content") or "").strip()
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             log.warning("synthesis_failed", error=str(exc))

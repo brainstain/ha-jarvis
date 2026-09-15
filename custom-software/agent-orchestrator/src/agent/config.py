@@ -14,7 +14,10 @@ class Settings(BaseSettings):
     litellm_base_url: str = "http://litellm:4000/v1"
     litellm_api_key: str = "sk-noauth"  # LiteLLM proxy key; not a real secret
     litellm_model: str = "assistant"
+    fast_model: str = "assistant-fast"   # used for simple/conversation graph synthesis
     router_model: str = "assistant-fast"
+    router_max_tokens: int = 150          # router output is always short JSON
+    synthesis_max_tokens: int = 150       # simple-graph synthesis; home answers are short
     embeddings_model: str = "embeddings"
 
     # ── Storage ──────────────────────────────────────────────

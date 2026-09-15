@@ -1,23 +1,33 @@
 # ============================================================
-# LiteLLM Proxy Configuration
-# Single inference endpoint with priority-based failover
+# LiteLLM Proxy Configuration — Agent Node
 # ============================================================
 #
-# Qwen3 models use extended thinking by default which causes:
-#   - Empty content until thinking tokens are exhausted
-#   - Garbled streaming output from raw thinking token IDs
-# think: false disables thinking mode for direct, fast responses.
+# Model tiers:
+#   assistant-fast  → qwen3:1.7b  (routing + simple synthesis, <2s)
+#   assistant       → qwen3:30b   (complex/research, priority 1)
+#                  → qwen3:8b    (fallback if inference unreachable)
+#
+# Qwen3 thinking mode: "think" is a TOP-LEVEL Ollama API parameter.
+# Use extra_body (not options.think) so LiteLLM passes it correctly.
 # ============================================================
 
 model_list:
+  # Fast: routing, tool selection, and simple-graph synthesis (Qwen3-4B)
+  - model_name: "assistant-fast"
+    litellm_params:
+      model: "ollama/qwen3:4b"
+      api_base: "http://ollama:11434"
+      timeout: 30
+      extra_body:
+        think: false
+
   # Primary reasoning — Qwen3-30B-A3B on RTX 3090
   - model_name: "assistant"
     litellm_params:
       model: "ollama/qwen3:30b"
       api_base: "http://inference.home.local:11434"
       timeout: 120
-      stream: true
-      options:
+      extra_body:
         think: false
     model_info:
       priority: 1
@@ -27,22 +37,11 @@ model_list:
     litellm_params:
       model: "ollama/qwen3:8b"
       api_base: "http://ollama:11434"
-      timeout: 60
-      stream: true
-      options:
+      timeout: 90
+      extra_body:
         think: false
     model_info:
       priority: 2
-
-  # Fast router / classifier — Qwen3-4B on GTX 1080 Ti
-  - model_name: "assistant-fast"
-    litellm_params:
-      model: "ollama/qwen3:4b"
-      api_base: "http://ollama:11434"
-      timeout: 30
-      stream: true
-      options:
-        think: false
 
   # Embeddings — nomic-embed-text on GTX 1080 Ti
   - model_name: "embeddings"
