@@ -53,26 +53,40 @@ class HACalendarProvider:
         start: str,
         end: str,
     ) -> list[dict[str, Any]]:
-        url = f"{HA_URL}/api/calendars/{quote(calendar_id, safe='')}"
-        params = {"start": start, "end": end}
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(url, headers=_headers(), params=params)
-            resp.raise_for_status()
-            raw: list[dict[str, Any]] = resp.json()
+        """List events in [start, end).
 
-        events = []
-        for ev in raw:
-            events.append(
-                {
-                    "uid": ev.get("uid", ""),
-                    "summary": ev.get("summary", ""),
-                    "start": (ev.get("start") or {}).get("dateTime") or (ev.get("start") or {}).get("date", ""),
-                    "end": (ev.get("end") or {}).get("dateTime") or (ev.get("end") or {}).get("date", ""),
-                    "description": ev.get("description", ""),
-                    "location": ev.get("location", ""),
-                    "all_day": "dateTime" not in (ev.get("start") or {}),
-                }
-            )
+        The LLM picking this tool has no prior turn to call list_calendars()
+        first (the "simple" graph allows exactly one tool call), so it often
+        guesses a plausible-sounding calendar_id ("primary", "default", "")
+        that doesn't match any real HA entity_id — that call used to 400,
+        and the synthesis step then hallucinated an unrelated "invalid auth
+        token" explanation for the raw error text. Since a read is safe to
+        broaden, an unrecognized calendar_id now aggregates events from every
+        real calendar instead of failing. create_event/delete_event stay
+        strict — guessing which calendar to *write* to is not safe.
+        """
+        real_ids = {cal["entity_id"] for cal in await self.list_calendars()}
+        targets = [calendar_id] if calendar_id in real_ids else sorted(real_ids)
+
+        events: list[dict[str, Any]] = []
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for target in targets:
+                url = f"{HA_URL}/api/calendars/{quote(target, safe='')}"
+                resp = await client.get(url, headers=_headers(), params={"start": start, "end": end})
+                resp.raise_for_status()
+                for ev in resp.json():
+                    events.append(
+                        {
+                            "uid": ev.get("uid", ""),
+                            "summary": ev.get("summary", ""),
+                            "start": (ev.get("start") or {}).get("dateTime") or (ev.get("start") or {}).get("date", ""),
+                            "end": (ev.get("end") or {}).get("dateTime") or (ev.get("end") or {}).get("date", ""),
+                            "description": ev.get("description", ""),
+                            "location": ev.get("location", ""),
+                            "all_day": "dateTime" not in (ev.get("start") or {}),
+                            "calendar_id": target,
+                        }
+                    )
         return events
 
     async def create_event(

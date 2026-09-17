@@ -48,11 +48,15 @@ async def calendar_events(
 ) -> dict[str, Any]:
     """List events from a calendar within a time window.
 
-    calendar_id: the calendar entity ID (from calendar_list)
+    calendar_id: the calendar entity ID (from calendar_list). If you don't
+        know it, a placeholder like "primary" is fine — an unrecognized ID
+        returns events from every calendar you have access to instead of
+        failing.
     start: ISO-8601 start datetime, e.g. "2025-01-15T00:00:00"
     end:   ISO-8601 end datetime,   e.g. "2025-01-22T00:00:00"
 
-    Returns a list of events with uid, summary, start, end, description, location.
+    Returns a list of events with uid, summary, start, end, description,
+    location, and which calendar_id each event came from.
     """
     provider = get_provider()
     try:
