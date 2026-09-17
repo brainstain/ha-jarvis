@@ -79,11 +79,19 @@ services:
   # fedirz/faster-whisper-server exposes an OpenAI-style REST API
   # (not Wyoming) and has been renamed upstream to "speaches".
   wyoming-whisper:
-    image: rhasspy/wyoming-whisper:latest
+    # Thin wrapper over the upstream image adding the CUDA runtime libs it's
+    # missing for GPU inference -- see ./wyoming-whisper/Dockerfile.
+    image: ${WYOMING_WHISPER_IMAGE:-ghcr.io/brainstain/wyoming-whisper-gpu-fix:latest}
+    build:
+      context: ./wyoming-whisper
+      dockerfile: Dockerfile
     container_name: wyoming-whisper
     restart: unless-stopped
-    ports:
-      - "10300:10300"
+    # No host port publish -- wyoming-identify-proxy is the only thing that
+    # talks to this now (by container name, over the `inference` network),
+    # and takes over port 10300 on the host itself. See that service below
+    # for why: HA's existing Wyoming integration keeps pointing at
+    # 192.168.13.15:10300 completely unchanged.
     volumes:
       - whisper_cache:/data
     command: >
@@ -113,6 +121,51 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+
+  # ── Wyoming STT proxy + speaker identification (Phase 2) ────
+  # Transparent Wyoming ASR relay to wyoming-whisper that also taps the
+  # audio for speechbrain /identify in the background. HA's existing
+  # Wyoming integration needs zero changes -- this takes over port 10300
+  # on the host, wyoming-whisper itself no longer publishes it.
+  # See custom-software/wyoming-identify-proxy/app.py for why the result
+  # is a single time-based "last speaker" slot rather than per-satellite
+  # tracking (HA's Wyoming STT calls carry no device/satellite identifier
+  # at all -- confirmed against home-assistant/core's own wyoming/stt.py).
+  wyoming-identify-proxy:
+    image: ${WYOMING_IDENTIFY_PROXY_IMAGE:-ghcr.io/brainstain/wyoming-identify-proxy:latest}
+    build:
+      # Deployed-layout relative path -- see speechbrain's build.context
+      # comment above for why this isn't ../../custom-software/...
+      context: ../custom-software/wyoming-identify-proxy
+      dockerfile: Dockerfile
+    container_name: wyoming-identify-proxy
+    restart: unless-stopped
+    profiles: [phase2]
+    depends_on:
+      - wyoming-whisper
+      - speechbrain
+    ports:
+      - "10300:10300"
+      - "8300:8300"
+    environment:
+      BACKEND_HOST: "wyoming-whisper"
+      BACKEND_PORT: "10300"
+      LISTEN_PORT: "10300"
+      SPEECHBRAIN_URL: "http://speechbrain:8200"
+      HTTP_PORT: "8300"
+      LAST_SPEAKER_TTL: "8.0"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - inference
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   # ── Text-to-Speech ─────────────────────────────────────────
   piper-tts:

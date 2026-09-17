@@ -19,13 +19,39 @@ to obtain it at runtime without an integration).
 
 from __future__ import annotations
 
+import httpx
 import structlog
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from agent.config import get_settings
+
 log = structlog.get_logger(__name__)
 
 ha_router = APIRouter(prefix="/ha", tags=["home-assistant"])
+
+_IDENTIFY_TIMEOUT = 3.0  # LAN call to wyoming-identify-proxy; fail open, never block the reply
+
+
+async def _lookup_speaker() -> tuple[str | None, float | None]:
+    """Check wyoming-identify-proxy's last-speaker slot.
+
+    Returns (user_id, confidence), both None if unavailable, unmatched, or
+    the proxy is unreachable/disabled -- this must never fail the request,
+    only degrade to the pre-Phase-2 family-scope default.
+    """
+    settings = get_settings()
+    if not settings.wyoming_identify_proxy_url:
+        return None, None
+    try:
+        async with httpx.AsyncClient(timeout=_IDENTIFY_TIMEOUT) as client:
+            resp = await client.get(f"{settings.wyoming_identify_proxy_url}/last-speaker")
+        resp.raise_for_status()
+        data = resp.json()
+    except httpx.HTTPError as exc:
+        log.warning("speaker_lookup_failed", error=str(exc))
+        return None, None
+    return data.get("user_id"), data.get("confidence")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -80,15 +106,25 @@ async def ha_conversation(
     from agent.api.routes import chat
     from agent.api.schemas import ChatRequest
 
-    # HA requests are always family-scope (household voice pipeline).
-    # speaker_id will be wired in Phase 2 via SpeechBrain.
+    # A confident, recent speechbrain match promotes the request to that
+    # person's personal scope; otherwise (unmatched, unconfident, or the
+    # proxy unreachable) it falls back to the original family-scope default.
+    # speechbrain's own /identify already gates on the configurable
+    # similarity threshold -- a non-null user_id here already cleared it.
+    speaker_id, confidence = await _lookup_speaker()
+
     chat_req = ChatRequest(
         message=payload.text,
-        user_id="ha_user",
-        scope="family",
+        user_id=speaker_id or "ha_user",
+        scope="personal" if speaker_id else "family",
+        speaker_id=speaker_id,
         thread_id=payload.conversation_id or None,
         source="voice",
-        metadata={"language": payload.language, "agent_id": payload.agent_id},
+        metadata={
+            "language": payload.language,
+            "agent_id": payload.agent_id,
+            "speaker_confidence": confidence,
+        },
     )
 
     try:
