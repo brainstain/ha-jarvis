@@ -106,9 +106,26 @@ _REASONING_FRAGMENT = _re.compile(
     _re.IGNORECASE,
 )
 
-SYNTHESIS_SYSTEM = (
-    "You are a home assistant. Answer in 1-2 sentences using any provided context."
-)
+def _synthesis_system() -> str:
+    """Build the synthesis system prompt with the actual current date.
+
+    _tool_selection_system() (graphs.nodes.tools) already injects the real
+    date so the tool call itself resolves "today"/"tomorrow" correctly. This
+    step never did — the model only ever saw the tool result's raw ISO
+    timestamps with no anchor to compare against. Confirmed live: with the
+    tool call resolving the right date but this prompt silent on it,
+    synthesis openly guessed at the current year ("If today is, say, 2023,
+    then tomorrow is not 2026...") instead of just reading the result.
+    """
+    now = datetime.now(UTC)
+    return (
+        "You are a home assistant. Answer in 1-2 sentences using any provided context. "
+        f"The current date and time is {now.strftime('%Y-%m-%d %H:%M')} UTC "
+        f"({now.strftime('%A')}) — use this to resolve relative dates like "
+        '"today" or "tomorrow" in the tool results.'
+    )
+
+
 VOICE_HINT = " One spoken sentence only — no lists or markdown."
 
 
@@ -253,7 +270,7 @@ async def _run_simple(
 ) -> ChatResponse:
     """Execute the simple-command graph with real MCP tool calls."""
     speech = OutputRouter.is_speech(channel)
-    system = SYNTHESIS_SYSTEM + (VOICE_HINT if speech else "")
+    system = _synthesis_system() + (VOICE_HINT if speech else "")
 
     async def memory_lookup(state: dict[str, Any]) -> list[dict[str, Any]]:
         try:
