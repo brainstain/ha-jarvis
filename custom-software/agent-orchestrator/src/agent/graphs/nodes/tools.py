@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any, Callable
 
 import httpx
@@ -20,10 +21,25 @@ from agent.mcp.tool_filter import ToolFilter
 
 log = structlog.get_logger(__name__)
 
-_TOOL_SELECTION_SYSTEM = (
-    "Pick the single tool that answers the user's request, "
-    'or "none" if no tool fits.'
-)
+
+def _tool_selection_system() -> str:
+    """Build the tool-selection system prompt with the actual current date.
+
+    Without this, a tool whose docstring includes an example date (e.g.
+    calendar_events' "start: ... e.g. '2025-01-20T00:00:00'") gets that
+    example copied into the model's output verbatim for relative queries
+    like "today" — confirmed live: every "what's on my calendar today"
+    query queried 2025-01-20 instead of the real date, silently returning
+    whatever (if anything) happened to be on that literal day.
+    """
+    now = datetime.now(UTC)
+    return (
+        "Pick the single tool that answers the user's request, "
+        'or "none" if no tool fits. '
+        f"The current date and time is {now.strftime('%Y-%m-%d %H:%M')} UTC "
+        f"({now.strftime('%A')}) — use this, not any example date in a tool's "
+        "description, to compute relative dates like \"today\" or \"tomorrow\"."
+    )
 
 
 def make_tool_executor(
@@ -61,7 +77,7 @@ def make_tool_executor(
             {
                 "role": "system",
                 "content": (
-                    _TOOL_SELECTION_SYSTEM
+                    _tool_selection_system()
                     + mem_ctx
                     + "\n\nAvailable tools:\n"
                     + render_tool_descriptions(usable)
