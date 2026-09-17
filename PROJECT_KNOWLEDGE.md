@@ -1,6 +1,8 @@
 # Project Knowledge: Offline-First Home AI Agent
 
 > **Purpose:** This document is the knowledge base for a Claude Project. It contains the complete architectural context, design decisions, and implementation state for building an offline-first AI agent system distributed across a 4-node Proxmox homelab cluster. Use this to maintain continuity across conversations.
+>
+> **This is a design-rationale/history doc, not a live status page** — good for *why* a decision was made, not necessarily *what's true right now*. Some specifics below have since changed in practice (e.g. the 30B→8B→3B model failover chain in "Critical Design Decisions" #2 no longer exists — the 8B/3B local tiers were removed and `assistant`/qwen3:30b is the only chat model; `mcp-calendar` shipped in Phase 2 as an HA-backed integration, not the Phase 4 CalDAV integration described under "Custom Software To Build" #4). For current, verified state, see **`ARCHITECTURE.md`**.
 
 ---
 
