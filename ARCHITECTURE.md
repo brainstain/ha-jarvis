@@ -8,6 +8,7 @@
 | Agent | 192.168.13.22 | GTX 1080 Ti | Orchestration, LLM proxy, vector DB, chat UI |
 | Inference | 192.168.13.15 | RTX 3090 | Primary LLM, voice pipeline (STT/TTS/wake word) |
 | NAS | 192.168.13.12 | Synology | Storage only — NFS exports for agent node |
+| Home Assistant | 192.168.13.20 | Separate VM | Voice pipeline + conversation agent front-end, out of deploy scope |
 
 Pi-hole on the gateway serves as LAN DNS. All services are accessible via
 `*.michaelgoldstein.co` with automatic TLS through Caddy + Route53 DNS-01
@@ -19,13 +20,13 @@ Pi-hole on the gateway serves as LAN DNS. All services are accessible via
 
 ### Gateway — Fully Deployed ✅
 
-All 9 containers healthy.
+All containers healthy.
 
 | Service | URL | Notes |
 |---------|-----|-------|
 | Caddy | — | TLS termination for all services |
-| Pi-hole | pihole.michaelgoldstein.co | LAN DNS, 24 local records |
-| Authentik | authentik.michaelgoldstein.co | SSO (not yet wired into services) |
+| Pi-hole | pihole.michaelgoldstein.co | LAN DNS |
+| Authentik | authentik.michaelgoldstein.co | Running and healthy, but **not gating any other service yet** — no `forward_auth` wired into any other Caddyfile block. Deploying it isn't the remaining step; deciding which services to put behind it and configuring that in Authentik itself is. |
 | SearXNG | search.michaelgoldstein.co | Self-hosted metasearch |
 | Uptime Kuma | uptime.michaelgoldstein.co | Service monitoring |
 | Redis | — | Broker for agent Celery tasks |
@@ -33,40 +34,50 @@ All 9 containers healthy.
 
 ---
 
-### Inference Node — Fully Deployed ✅
+### Inference Node — Fully Deployed ✅, voice pipeline wired into HA
 
 | Service | Port | Status |
 |---------|------|--------|
-| Ollama (qwen3:30b) | 11434 | Healthy — 18 GB model on RTX 3090 |
-| Wyoming Whisper | 10300 | Healthy — STT for HA voice pipeline |
-| Piper TTS | 10200 | Healthy — TTS for HA voice pipeline |
-| OpenWakeWord | 10400 | Healthy — wake word for HA |
+| Ollama (qwen3:30b) | 11434 | Healthy — 18 GB model on RTX 3090. This is the only chat model in the stack (see Agent Node below) |
+| Wyoming Whisper | 10300 | Healthy — STT, wired into HA's default Assist pipeline as `stt.faster_whisper` |
+| Piper TTS | 10200 | Healthy — TTS, wired in as `tts.piper` (voice: `en_US-lessac-medium`, the model actually installed on the container — check before changing `tts_voice` in the pipeline, a mismatch fails silently) |
+| OpenWakeWord | 10400 | Healthy — wired in as `wake_word.openwakeword` |
 | Metrics exporters | 9100/9835/9091 | Healthy — scraped by agent Prometheus |
 
-The voice pipeline services are deployed but **not yet wired into Home Assistant**.
-HA needs to point its Wyoming integration at `inference.michaelgoldstein.co` on
-ports 10300 (STT), 10200 (TTS), and 10400 (wake word).
+HA's own Wyoming integrations for these three were added via
+`Settings → Devices & Services → Add Integration → Wyoming Protocol`
+(host `192.168.13.15`, the three ports above), and the default Assist
+pipeline's `stt_engine`/`tts_engine`/`wake_word_entity` point at the
+resulting entities. HA also has pre-existing `hassio`-sourced Piper/Whisper
+add-ons from before this project (`stt.faster_whisper_2`, `tts.piper_2`) —
+those are unrelated and unused now, not a duplicate to clean up urgently,
+just don't confuse the two when looking at HA's integration list.
 
 ---
 
-### Agent Node — Phase 2 Deployed ✅
+### Agent Node — Phase 2 Deployed ✅, fully healthy
 
 | Service | Status | Notes |
 |---------|--------|-------|
-| Ollama-agent | Up (healthcheck cosmetic) | Models loaded: qwen3:4b, qwen3:8b, nomic-embed-text:v1.5 |
-| LiteLLM | Up — inference working ✅ | All 4 models responding; Docker healthcheck shows (unhealthy) but is a false alarm — see note |
+| ollama-agent | Up (healthcheck cosmetic) | Only hosts `nomic-embed-text:v1.5` for embeddings now. `qwen3:4b`/`qwen3:8b`/`qwen3:1.7b` weights are still present on disk (pulled previously) but **not referenced by `litellm_config.yaml` and not in the routing path** — the 4b/8b tiers were removed in PR #11; don't assume their presence on disk means they're live. |
+| LiteLLM | Up (Docker healthcheck shows unhealthy — cosmetic, see note below) | Two models: `assistant` (`qwen3:30b`, routed to the **inference node's** RTX 3090 at `inference.home.local:11434`, not local) and `embeddings` (`nomic-embed-text:v1.5`, local at `ollama:11434`) |
 | Prometheus | Healthy | Scrapes agent + inference node |
 | Grafana | Up | grafana.michaelgoldstein.co |
-| **Qdrant** | **Healthy** | Vector DB for agent memory — port 6333 |
-| **agent-orchestrator** | **Healthy** | Port 8100; `/health` returns `degraded` (ha-mcp unreachable — expected, needs HA component) |
+| Qdrant | Healthy | Vector DB for agent memory — port 6333 |
+| **agent-orchestrator** | **Healthy, `/health` → `"status": "ok"`** | Port 8100 / `agent-api.michaelgoldstein.co`. All 6 configured MCP servers connected (`ha-mcp`, `mcp-memory-scoped`, `mcp-notifications`, `mcp-workflow-status`, `mcp-calendar`, `google-workspace`), 60 tools total |
 | **Open WebUI** | **Healthy** | Port 3000 — chat UI wired to LiteLLM |
 
 **LiteLLM healthcheck note:** Docker reports `(unhealthy)` because LiteLLM's
-built-in `/health` probe runs a live inference call to warm-check each model.
-The local models (qwen3:4b, qwen3:8b) exceed the probe timeout on cold start,
-and nomic-embed-text rejects a generate call (embeddings-only model). All three
-respond correctly to actual requests. Verified: chat completions and 768-dim
-embeddings both work.
+built-in `/health` probe runs a live inference call to warm-check each model,
+and that probe alone is flaky enough to occasionally miss its window — actual
+chat completions and 768-dim embeddings both work correctly. Same story for
+`ollama-agent`'s cosmetic `(unhealthy)`.
+
+**`ha-mcp` note (fixed 2026-09-17):** the SSE URL was `${HA_URL}/mcp`, which
+404s — HA's built-in **MCP Server** integration (present in HA core, just
+never added via `Settings → Devices & Services`) actually serves SSE at
+`/mcp_server/sse`. Fixed in `mcp_servers.json`; the integration itself was
+added to HA via its config-entries API.
 
 ---
 
@@ -90,116 +101,112 @@ bash /opt/homelab-ai/agent/scripts/setup-nfs-mounts.sh
 
 ---
 
-## Custom Software (Written, Not Yet Deployed)
+## Custom Software — Deployed and Running
 
-All source lives in `custom-software/`. The agent-orchestrator Docker image needs
-to be built on the agent node. Nothing in this stack is running yet.
+All source lives in `custom-software/`. The agent-orchestrator image is built
+directly on the agent node (`docker build` from the `custom-software/`
+context, not GHCR pull, though the images are also published there by CI on
+push to `main`).
 
-| Package | What it does |
-|---------|-------------|
-| `agent-orchestrator` | FastAPI + LangGraph agent. Handles chat, memory, tool dispatch, HA conversation protocol, WebSocket streaming. Three modes: simple (single-pass), multistep (planned steps), interactive (HITL with human confirmation). |
-| `mcp-memory-scoped` | 7-tool MCP server backed by Qdrant. Scoped memory (personal vs. family) with auto-promotion for important facts. |
-| `mcp-notifications` | 4-tool MCP server. HA-native push to mobile, persistent notifications, TTS on any media player, Open WebUI message injection. Discovers targets dynamically from HA REST API — no hardcoding. |
-| `mcp-workflow-status` | 5-tool MCP server. Check, resume, and cancel async research tasks via the orchestrator REST API. |
-| `mcp-calendar` | 4-tool MCP server. Read/write HA Google Calendar. Extensible provider pattern — add CalDAV etc. by dropping a file in `providers/`. |
-| `speechbrain-speaker-id` | HTTP service for per-speaker voice identification. Enrollment API at `POST /enroll`. Not yet wired into HA. |
+| Package | What it does | Status |
+|---------|-------------|--------|
+| `agent-orchestrator` | FastAPI + LangGraph agent. Handles chat, memory, tool dispatch, HA conversation protocol, WebSocket streaming. Three sync modes: simple (single-pass), multistep (planned steps), interactive (HITL) — plus an async `research` mode. | Deployed, healthy |
+| `mcp-memory-scoped` | 7-tool MCP server backed by Qdrant. Scoped memory (personal vs. family) with auto-promotion for important facts. | Deployed, connected |
+| `mcp-notifications` | 4-tool MCP server. HA-native push to mobile, persistent notifications, TTS on any media player, Open WebUI message injection. | Deployed, connected — needs `HA_URL`/`HA_TOKEN` in its stdio subprocess `env` block in `mcp_servers.json` (stdio subprocesses do **not** inherit the container's full environment, only a safe allowlist — see note below) |
+| `mcp-workflow-status` | 5-tool MCP server. Check, resume, and cancel async research tasks via the orchestrator REST API. | Deployed, connected |
+| `mcp-calendar` | 4-tool MCP server. Read/write HA Google Calendar via HA's REST API (`CALENDAR_PROVIDER=ha`, default). Extensible provider pattern — add CalDAV etc. by dropping a file in `providers/`. `list_events` tolerates an LLM-guessed `calendar_id` by aggregating all accessible calendars instead of failing. | Deployed, connected, verified against real calendar data |
+| `google-workspace` | Gmail/Docs/Drive via `taylorwilsdon/workspace-mcp` (PyPI). Deliberately excludes `calendar` from its `--tools` list — `mcp-calendar` is the canonical calendar path, not this. | Deployed; connects even without Google OAuth credentials configured (degrades gracefully, no Gmail/Docs/Drive tools until set up) |
+| `speechbrain-speaker-id` | HTTP service for per-speaker voice identification via ECAPA-TDNN embeddings + Qdrant. `POST /enroll`, `POST /identify`, `GET /speakers`. Code is complete and reviewed-correct. | **Not deployed anywhere** — no container exists yet on the inference node. Needs `docker compose --profile phase2 up -d speechbrain`. Enrollment itself needs a real person's voice sample, and the UX for that (who enrolls, via what flow, how confidence gates tool scope) is an open product decision, not a code gap — see `QUESTIONS.md` |
+| `ha_custom_component` (`ha_jarvis`) | Home Assistant custom conversation agent. Bridges HA's Assist pipeline to `agent-orchestrator`: tries HA's built-in intent matching first (fast local device control), then `POST {base_url}/ha/conversation/process` for everything else. | Deployed on the HA VM (`/config/custom_components/ha_jarvis`), registered, and set as the **default** Assist pipeline's conversation engine. Verified end-to-end through the real pipeline mechanism, not just direct API calls |
 
-**MCP servers enabled when agent-orchestrator starts:** ha-mcp (HA tools),
-mcp-memory-scoped, mcp-notifications, mcp-workflow-status. Calendar and others
-are disabled until Phase 2 is running.
+**Stdio MCP subprocess environment note:** `agent-orchestrator` spawns
+`mcp-calendar`/`mcp-notifications`/etc. as subprocesses over stdio. The MCP
+SDK's `env=None` default does **not** mean "inherit the parent container's
+environment" — it merges only a small safe allowlist (`PATH`, `HOME`, etc.,
+see `mcp.client.stdio.get_default_environment`), deliberately never leaking
+secrets into a spawned subprocess. Any stdio server needing `HA_TOKEN` or
+similar must declare it explicitly in that server's `"env"` block in
+`mcp_servers.json`, and those values go through the same `${VAR}` expansion
+as `url`/`headers`. Confirmed live: this was silently broken for
+`mcp-calendar` and `mcp-notifications` until fixed 2026-09-17.
+
+**MCP servers enabled when agent-orchestrator starts:** `ha-mcp`,
+`mcp-memory-scoped`, `mcp-notifications`, `mcp-workflow-status`,
+`mcp-calendar`, `google-workspace`. `mcp-playwright` stays disabled — no
+`playwright-mcp` container exists yet, that's more than a config flag.
+`mcp-filesystem`/`mcp-fetch` wait on Phase 3 (NAS NFS mounts). `mcp-shopping-list`/`mcp-routines` are Phase 4 placeholders.
 
 ---
 
-## How to Start Testing
+## Redeploying / Making Changes
 
-### Step 1 — Deploy Phase 2 (agent + vector DB + chat UI)
+Deploy dirs on each node are standalone (`/opt/homelab-ai/<node>/`), rsynced
+from this repo — **not** git checkouts. There's no single "deploy everything"
+button for the custom software; each piece is synced and restarted
+individually.
+
+### agent-orchestrator (code or config change)
 
 ```bash
-# Sync custom software and updated configs to the agent node
-rsync -avz custom-software/ michael@192.168.13.22:/opt/homelab-ai/custom-software/
-rsync -av servers/agent/ michael@192.168.13.22:/opt/homelab-ai/agent/
+rsync -avz --exclude='.venv' --exclude='__pycache__' custom-software/ \
+  michael@192.168.13.22:/opt/homelab-ai/custom-software/
 
-# Build the agent-orchestrator image on the node
+# mcp_servers.json has a SEPARATE runtime copy, bind-mounted — a plain
+# custom-software/ sync does NOT touch it. Copy explicitly if it changed:
+ssh michael@192.168.13.22 \
+  "cp /opt/homelab-ai/custom-software/agent-orchestrator/config/mcp_servers.json \
+      /opt/homelab-ai/agent/config/mcp_servers.json"
+
 ssh michael@192.168.13.22 \
   "cd /opt/homelab-ai/custom-software/agent-orchestrator && \
-   docker build -t agent-orchestrator:latest ."
+   docker build --no-cache -t agent-orchestrator:latest -f Dockerfile .."
 
-# Start Phase 2 services
 ssh michael@192.168.13.22 \
-  "cd /opt/homelab-ai/agent && docker compose --profile phase2 up -d"
+  "docker tag agent-orchestrator:latest ghcr.io/brainstain/ha-jarvis/agent-orchestrator:latest && \
+   cd /opt/homelab-ai/agent && docker compose up -d --no-deps --force-recreate agent-orchestrator"
 ```
 
-This starts: **Qdrant** (vector DB on port 6333), **agent-orchestrator** (port 8100),
-**Open WebUI** (port 3000).
+`--force-recreate` is required — a plain `docker compose up -d` (or
+`docker restart`) does **not** pick up a newly built image tag if the
+container's already running; it silently keeps serving the old image.
+Confirmed live: this cost a full debugging detour before being caught via
+`docker inspect <container> --format '{{.Image}}'` not matching the freshly
+built image ID.
 
----
+### Gateway (Caddyfile / DNS changes)
 
-### Step 2 — Enable the Agent API in Caddy + DNS
-
-In `servers/gateway/caddy/Caddyfile`, uncomment:
-```
-agent-api.michaelgoldstein.co {
-    reverse_proxy 192.168.13.22:8100
-}
-```
-
-In `servers/gateway/docker-compose.yml`, add to `FTLCONF_dns_hosts`:
-```
-192.168.13.29 agent-api.michaelgoldstein.co
-```
-
-Then sync and redeploy on the gateway:
 ```bash
 rsync -av servers/gateway/ michael@192.168.13.29:/opt/homelab-ai/gateway/
 ssh michael@192.168.13.29 "cd /opt/homelab-ai/gateway && \
   docker compose up -d --no-deps --force-recreate caddy pihole"
 ```
 
----
+A brand-new subdomain's first ACME cert request can transiently fail on
+Let's Encrypt with `No TXT record found` (DNS propagation lag) — Caddy
+automatically retries via ZeroSSL and it resolves within ~10-20 seconds. Not
+a configuration error if you see it once.
 
-### Step 3 — Smoke Test the Stack
+### Smoke test
 
 ```bash
-# Health check — shows MCP server connection status
-curl http://192.168.13.22:8100/health
+curl https://agent-api.michaelgoldstein.co/health
 
-# Basic chat
-curl -X POST http://192.168.13.22:8100/chat \
+curl -X POST https://agent-api.michaelgoldstein.co/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "What can you help me with?", "scope": "family"}'
-
-# Open WebUI — open in browser
-open https://webui.michaelgoldstein.co
+  -d '{"message": "What can you help me with?", "scope": "family", "user_id": "test"}'
 ```
 
 ---
 
-### Step 4 — Wire the HA Voice Pipeline
+## What's Left
 
-In Home Assistant: **Settings → Voice Assistants → Add pipeline**
-
-| Field | Value |
-|-------|-------|
-| Wake word | Wyoming — `inference.michaelgoldstein.co:10400` |
-| Speech-to-text | Wyoming — `inference.michaelgoldstein.co:10300` |
-| Text-to-speech | Wyoming — `inference.michaelgoldstein.co:10200` |
-| Conversation agent | Home Assistant (for now — see note below) |
-
-> **Note:** The full agent conversation integration (routing voice commands to
-> `agent-orchestrator`) requires a custom HA component that bridges HA's
-> conversation protocol to `POST /ha/conversation/process` on the agent.
-> The orchestrator endpoint is already built and ready — the HA component
-> is the remaining piece.
-
----
-
-## What's Left After Phase 2
-
-| Item | What it unlocks |
-|------|----------------|
-| Configure NFS on Synology DSM | Phase 3: Paperless document management |
-| Phase 3 deploy | `docker compose --profile phase3 up -d` on agent node |
-| HA custom conversation component | Full voice → agent pipeline |
-| SpeechBrain speaker enrollment | Per-user memory scoping via voice |
-| Get Open WebUI API key from admin panel | `notify_webui` tool (async task results in chat) |
-| Authentik integration | SSO in front of exposed services |
+| Item | Status |
+|------|--------|
+| HA custom conversation component | **Done** — `ha_jarvis` deployed, registered, set as default pipeline's conversation agent |
+| Wire HA Wyoming voice pipeline | **Done** — Whisper/Piper/OpenWakeWord integrations added, default pipeline updated |
+| Get Open WebUI API key from admin panel | **Done** |
+| Enable `agent-api.michaelgoldstein.co` | **Done** |
+| Configure NFS on Synology DSM | Open — unlocks Phase 3 (Paperless) |
+| Phase 3 deploy | Open — `docker compose --profile phase3 up -d` on agent node, blocked on NFS |
+| SpeechBrain speaker enrollment | Open — service is deployable, but enrollment needs a live person and the enrollment UX/privacy questions in `QUESTIONS.md` are unresolved product decisions, not code gaps |
+| Authentik gating other services | Open — Authentik itself is deployed and healthy; deciding which services to protect and wiring `forward_auth` for them is the remaining work |

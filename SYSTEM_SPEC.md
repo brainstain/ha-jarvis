@@ -2,7 +2,18 @@
 
 **Version:** 1.2  
 **Date:** 2026-03-01  
-**Status:** Architecture Complete — Ready for Implementation
+**Status:** Original design spec — implementation has since diverged in places
+
+> **This document is the frozen original design intent, not a live status
+> page.** Several specifics below no longer match what's actually deployed
+> (e.g. this spec describes Traefik + Authentik in front of external access;
+> the deployed reverse proxy is Caddy, and Authentik — while running — isn't
+> gating any service yet. It also describes a model-degradation fallback
+> chain, 30B → 8B → 3B → HA intents, that no longer exists: the 8B/3B local
+> tiers were removed and `assistant` (qwen3:30b, remote) is the only chat
+> model). Keep reading it for the *reasoning* behind design choices, but for
+> **current, verified state** — what's actually running, what's healthy,
+> what's still open — see **`ARCHITECTURE.md`** instead.
 
 ---
 

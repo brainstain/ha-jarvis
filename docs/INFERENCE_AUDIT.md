@@ -1,5 +1,10 @@
 # Audit v2: ha-jarvis inference plan (full repo review)
 
+> **Status: historical.** This was a pre-Phase-1 launch audit. All findings
+> below (B1-B5, D1-D5, G1-G6) have since been resolved — the inference node is
+> fully deployed and healthy, see `ARCHITECTURE.md` for current state. Kept
+> for the reasoning behind decisions like Wyoming-vs-REST STT.
+
 Reviewed: `SYSTEM_SPEC.md`, `servers/inference/{SERVER_SPEC.md,docker-compose.yml}`,
 `servers/gateway/SERVER_SPEC.md`, `servers/agent/docker-compose.yml`,
 `scripts/{deploy.sh,ollama-restart.sh,backup-cron.sh,generate-pihole-dns.sh}`,
