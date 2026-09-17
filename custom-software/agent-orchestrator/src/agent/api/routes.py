@@ -362,8 +362,11 @@ async def _run_simple(
 
         # Reject text that looks like truncated inline reasoning rather than
         # a real answer: no sentence-ending punctuation, or starts with a
-        # reasoning keyword (artifact of _strip_inline_reasoning's last-line fallback).
-        if text and not ((text[-1] in ".!?" or len(text) > 60) and not _REASONING_FRAGMENT.match(text)):
+        # reasoning keyword (artifact of _strip_inline_reasoning's last-line
+        # fallback). No length exception: a long reply cut off mid-thought
+        # (e.g. "...and Bear (") is exactly the shape this must catch —
+        # confirmed live, see the calendar-synthesis truncation incident.
+        if text and not (text[-1] in ".!?" and not _REASONING_FRAGMENT.match(text)):
             log.warning("synthesis_fragment", text=text[:80])
             text = ""
         elif not text:

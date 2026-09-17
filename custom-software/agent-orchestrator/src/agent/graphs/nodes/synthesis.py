@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable
 
 import httpx
@@ -17,6 +18,20 @@ _SYNTHESIS_SYSTEM = (
     "Be direct and specific; never describe the tool or the mechanics of the call."
 )
 _VOICE_HINT = " Your answer is spoken aloud: one or two short sentences, no lists or markup."
+
+# Detects partial reasoning extracted as a "last line" by LLMClient's inline-
+# reasoning stripper (agent.core.llm._strip_inline_reasoning) when qwen3's
+# thinking runs past max_tokens with no closing </think>. Mirrors the same
+# guard in agent.api.routes — see that module for the full incident history:
+# without think:false + this rejection, a multi-tool "assistant" (qwen3:30b)
+# reply can come back as a truncated mid-thought sentence (e.g. "But the
+# user might not need the UIDs...") instead of a real answer, and this graph
+# had no check to catch it before returning it straight to the user.
+_REASONING_FRAGMENT = re.compile(
+    r"^(But (wait|note|remember)|Wait[,.]|Hmm[,.]|Let me (think|check|re|reconsider)|"
+    r"I need to|We need to|Actually,|Hold on)",
+    re.IGNORECASE,
+)
 
 _PLANNING_SYSTEM = (
     "You are a planning assistant. Given a user request and available tools, output a JSON "
@@ -63,10 +78,22 @@ def make_synthesizer(llm: LLMClient, speech: bool = False) -> Callable[[dict[str
             confidence = 0.4 if last.get("error") else 0.9
 
         try:
-            reply = await llm.complete(messages)
+            reply = await llm.complete(
+                messages,
+                max_tokens=llm.settings.synthesis_max_tokens,
+                extra_body={"think": False},
+            )
             text = (reply.get("content") or "").strip()
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             log.warning("synthesis_failed", error=str(exc))
+            text = ""
+
+        # Reject text that looks like truncated inline reasoning rather than a
+        # real answer: no sentence-ending punctuation, or starts with a
+        # reasoning keyword (artifact of the inline-reasoning stripper's
+        # last-line fallback). See agent.api.routes for the matching guard.
+        if text and not (text[-1] in ".!?" and not _REASONING_FRAGMENT.match(text)):
+            log.warning("synthesis_fragment", text=text[:80])
             text = ""
 
         if not text:
