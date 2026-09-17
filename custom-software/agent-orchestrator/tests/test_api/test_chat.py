@@ -28,6 +28,8 @@ class ScriptedLLM:
         self.queue = list(messages)
         self.tools_seen = []
         self.messages_seen = []
+        # make_synthesizer reads llm.settings.synthesis_max_tokens directly.
+        self.settings = routes.settings
 
     async def complete(self, messages, extra_body=None, **kwargs):
         self.tools_seen.append(extra_body)
