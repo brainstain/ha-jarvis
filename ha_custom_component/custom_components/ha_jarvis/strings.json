@@ -2,33 +2,16 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to LLM Backend",
-        "description": "Choose the API type and enter connection details.",
+        "title": "Connect to Agent Orchestrator",
+        "description": "Enter the base URL of your agent-orchestrator instance (e.g., http://192.168.13.22:8100).",
         "data": {
-          "api_type": "API Type",
-          "host": "Host",
-          "port": "Port"
-        }
-      },
-      "model": {
-        "title": "Select Ollama Model",
-        "description": "Choose which Ollama model to use for conversations.",
-        "data": {
-          "model": "Model"
-        }
-      },
-      "openai_model": {
-        "title": "Configure OpenAI-Compatible Model",
-        "description": "Enter the model name and API key for your OpenAI-compatible endpoint (e.g., LiteLLM).",
-        "data": {
-          "model_name": "Model Name",
-          "api_key": "API Key"
+          "base_url": "Base URL",
+          "api_key": "Bearer Token (optional)"
         }
       }
     },
     "error": {
-      "cannot_connect": "Cannot connect to the server. Ensure it is running and accessible.",
-      "no_models": "No models found on the Ollama server. Pull a model first (e.g., `ollama pull llama3.1`)."
+      "cannot_connect": "Cannot connect to agent-orchestrator. Ensure it is running and the URL is correct (checks GET {base_url}/ha/health)."
     }
   },
   "options": {
@@ -37,12 +20,7 @@
         "title": "HA Jarvis Options",
         "description": "Configure the conversation agent behavior.",
         "data": {
-          "try_ha_first": "Try Home Assistant intents first (device control)",
-          "prompt": "System Prompt",
-          "max_history": "Max Conversation History (turns)",
-          "temperature": "Temperature",
-          "top_p": "Top P",
-          "keep_alive": "Keep Alive Duration"
+          "try_ha_first": "Try Home Assistant intents first (device control)"
         }
       }
     }
