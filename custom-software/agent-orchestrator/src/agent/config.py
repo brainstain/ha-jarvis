@@ -72,6 +72,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     enable_metrics: bool = True
 
+    # ── Speaker identification (Phase 2) ────────────────────
+    # wyoming-identify-proxy's HTTP side-channel (see
+    # custom-software/wyoming-identify-proxy/app.py) — GET /last-speaker
+    # returns whoever speechbrain most recently identified, by time only
+    # (HA's Wyoming STT protocol carries no device/satellite identifier
+    # to correlate against). None/empty disables the lookup entirely.
+    wyoming_identify_proxy_url: str | None = "http://192.168.13.15:8300"
+
 
 @lru_cache
 def get_settings() -> Settings:
