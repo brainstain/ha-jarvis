@@ -44,6 +44,7 @@ from agent.api.schemas import (
     ThreadInfo,
 )
 from agent.config import get_settings
+from agent.core.history import ConversationHistory
 from agent.core.llm import LLMClient
 from agent.core.output import OutputRouter
 from agent.core.router import MetaRouter
@@ -77,6 +78,14 @@ router = APIRouter()
 
 settings = get_settings()
 sessions = SessionManager(session_timeout_seconds=settings.session_timeout_seconds)
+# Recent turns per thread_id, so a follow-up ("and the office one too") can
+# be resolved against the prior exchange. SessionManager only decides which
+# requests *share* a thread_id — nothing previously read history back on
+# it. See core/history.py for why this is separate from long-term memory.
+history = ConversationHistory(
+    max_turns=settings.conversation_history_max_turns,
+    ttl_seconds=settings.conversation_history_ttl_seconds,
+)
 meta_router = MetaRouter(settings)
 llm = LLMClient(settings)
 guard = SafetyGuard(
@@ -319,6 +328,7 @@ async def _run_simple(
                             + render_tool_descriptions(tools)
                         ),
                     },
+                    *(state.get("messages") or []),
                     {"role": "user", "content": request.message},
                 ],
                 model=settings.fast_model,
@@ -363,6 +373,7 @@ async def _run_simple(
 
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system},
+            *(state.get("messages") or []),
             {"role": "user", "content": user_content},
         ]
 
@@ -419,11 +430,16 @@ async def _run_simple(
             "thread_id": thread_id,
             "source": request.source,
             "output_channel": channel,
+            "messages": history.get_messages(thread_id),
         }
     )
 
+    response_text = final.get("response", "")
+    history.append(thread_id, "user", request.message)
+    history.append(thread_id, "assistant", response_text)
+
     return ChatResponse(
-        message=final.get("response", ""),
+        message=response_text,
         thread_id=thread_id,
         output_channel=channel,
         tools_used=final.get("tools_used", []),
@@ -476,10 +492,15 @@ async def _run_multistep(
             "output_channel": channel,
             "available_tools": tools,
             "tools_needed": decision.tools_needed,
+            "messages": history.get_messages(thread_id),
         }
     )
+    response_text = final.get("response", "")
+    history.append(thread_id, "user", request.message)
+    history.append(thread_id, "assistant", response_text)
+
     return ChatResponse(
-        message=final.get("response", ""),
+        message=response_text,
         thread_id=thread_id,
         output_channel=channel,
         tools_used=final.get("tools_used", []),
@@ -506,6 +527,14 @@ async def _run_interactive(
     )
     synthesizer = make_synthesizer(llm, speech=speech)
 
+    # Unlike simple/multistep, this graph's own SQLite checkpointer already
+    # accumulates the "messages" field (via resume_node) across the pause/
+    # resume of a single HITL exchange on this thread_id. Feeding
+    # `history.get_messages()` into that same reducer-merged field would
+    # double up on every turn (checkpointed history + our own copy of it).
+    # So this graph relies on the checkpointer for within-flow continuity,
+    # and only participates in cross-graph continuity via the `history`
+    # store below, same as simple/multistep.
     async with AsyncSqliteSaver.from_conn_string(settings.langgraph_db) as checkpointer:
         graph = build_interactive_graph(
             memory_lookup=make_memory_lookup(scoped),
@@ -532,8 +561,12 @@ async def _run_interactive(
     if pending_q:
         sessions.mark_pending(thread_id, request.user_id, pending_q)
 
+    response_text = final.get("response", pending_q or "")
+    history.append(thread_id, "user", request.message)
+    history.append(thread_id, "assistant", response_text)
+
     return ChatResponse(
-        message=final.get("response", pending_q or ""),
+        message=response_text,
         thread_id=thread_id,
         output_channel=channel,
         tools_used=final.get("tools_used", []),

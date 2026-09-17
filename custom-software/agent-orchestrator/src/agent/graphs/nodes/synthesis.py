@@ -50,9 +50,11 @@ def make_synthesizer(llm: LLMClient, speech: bool = False) -> Callable[[dict[str
     async def synthesize(state: dict[str, Any]) -> dict[str, Any]:
         calls: list[dict[str, Any]] = state.get("tool_calls") or []
         message: str = state.get("message", "")
+        history: list[dict[str, Any]] = state.get("messages") or []
 
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system},
+            *history,
             {"role": "user", "content": message},
         ]
 
@@ -116,6 +118,7 @@ def make_planner(llm: LLMClient) -> Callable[[dict[str, Any]], Any]:
         message = state.get("message", "")
         available: list[Any] = state.get("available_tools") or []
         tools_needed: list[str] = state.get("tools_needed") or []
+        history: list[dict[str, Any]] = state.get("messages") or []
 
         tool_names = [
             t if isinstance(t, str) else getattr(t, "name", str(t)) for t in available
@@ -132,6 +135,7 @@ def make_planner(llm: LLMClient) -> Callable[[dict[str, Any]], Any]:
             reply = await llm.complete(
                 [
                     {"role": "system", "content": _PLANNING_SYSTEM + tool_ctx},
+                    *history,
                     {"role": "user", "content": user_msg},
                 ]
             )
