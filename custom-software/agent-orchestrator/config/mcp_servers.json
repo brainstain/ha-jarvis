@@ -4,7 +4,7 @@
     {
       "name": "ha-mcp",
       "transport": "sse",
-      "url": "${HA_URL}/mcp",
+      "url": "${HA_URL}/mcp_server/sse",
       "headers": {
         "Authorization": "Bearer ${HA_TOKEN}"
       },
