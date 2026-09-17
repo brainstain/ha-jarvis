@@ -17,6 +17,7 @@ import uuid
 import logging
 
 import numpy as np
+import soundfile as sf
 import torch
 import torchaudio
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -63,11 +64,23 @@ def startup() -> None:
 
 
 def _embed(audio_bytes: bytes) -> np.ndarray:
-    """Decode audio bytes -> mono 16 kHz -> ECAPA embedding (192-dim)."""
+    """Decode audio bytes -> mono 16 kHz -> ECAPA embedding (192-dim).
+
+    Decoding via soundfile/libsndfile, not torchaudio.load(): current
+    torchaudio (2.14, pulled in by speechbrain>=1.0's own pin) dropped its
+    legacy sox/soundfile load backends in favor of a separate `torchcodec`
+    package that isn't installed here, so torchaudio.load() raised
+    "TorchCodec is required for load_with_torchcodec" on every call —
+    confirmed live, the very first real enrollment attempt failed on it.
+    soundfile is already a direct dependency and needs no extra package.
+    Accepts WAV/FLAC/OGG (libsndfile's formats); does NOT decode AAC/MP3/M4A
+    — convert those client-side first (e.g. `afconvert`/`ffmpeg` to WAV).
+    """
     try:
-        waveform, sr = torchaudio.load(io.BytesIO(audio_bytes))
+        data, sr = sf.read(io.BytesIO(audio_bytes), dtype="float32", always_2d=True)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"Could not decode audio: {exc}")
+    waveform = torch.from_numpy(data.T)  # (frames, channels) -> (channels, frames)
     if waveform.shape[0] > 1:  # downmix to mono
         waveform = waveform.mean(dim=0, keepdim=True)
     if sr != TARGET_SR:
