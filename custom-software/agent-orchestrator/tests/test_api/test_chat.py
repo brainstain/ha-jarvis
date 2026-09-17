@@ -112,6 +112,28 @@ async def test_simple_graph_executes_a_tool_through_the_hub(ha_registry, monkeyp
     assert names == ["ha-mcp__climate_set", "ha-mcp__light_turn_off"]
 
 
+async def test_synthesis_disables_thinking(ha_registry, monkeypatch):
+    """Regression: synthesis previously left `think` unset (effectively
+    think:true), which frequently made the model answer from its own
+    inline reasoning instead of the tool result — confirmed live, 3 of 4
+    identical trials against a known tool result fabricated a plausible
+    but wrong answer instead of reporting what the tool actually returned.
+    think:False must be passed on the synthesis call.
+    """
+    mcp, session = ha_registry
+    await mcp.discover()
+    llm = ScriptedLLM(
+        tool_call("ha-mcp__light_turn_off", {"entity_id": "light.kitchen"}),
+        {"role": "assistant", "content": "The kitchen light is off."},
+    )
+    install(SIMPLE, llm, mcp, monkeypatch)
+
+    await routes.chat(request())
+
+    synthesis_extra_body = llm.tools_seen[1]
+    assert synthesis_extra_body == {"think": False}
+
+
 async def test_failed_tool_call_trips_the_circuit_breaker(ha_registry, monkeypatch):
     mcp, session = ha_registry
     session.results["light_turn_off"] = RuntimeError("HA unreachable")
