@@ -39,10 +39,24 @@ All containers healthy.
 | Service | Port | Status |
 |---------|------|--------|
 | Ollama (qwen3:30b) | 11434 | Healthy — 18 GB model on RTX 3090. This is the only chat model in the stack (see Agent Node below) |
-| Wyoming Whisper | 10300 | Healthy — STT, wired into HA's default Assist pipeline as `stt.faster_whisper` |
+| **wyoming-identify-proxy** | **10300 (host-facing)** | Healthy — transparent Wyoming ASR relay in front of the real Whisper server (see below), also taps audio for speaker ID. HA talks to this now, unchanged from its own point of view |
+| wyoming-whisper | 10300 (internal only) | Healthy, and **actually transcribes now** — built from a local wrapper (`servers/inference/wyoming-whisper/Dockerfile`) adding CUDA runtime libs the upstream image never bundled. Confirmed live: every real transcription crashed with a missing-`libcublas` error until this fix; no earlier test in this project exercised real audio, only HA's text-input intent stage, so it went unnoticed. No longer has a host port — reached only via `wyoming-identify-proxy` |
+| speechbrain-speaker-id | 8200 | Healthy — `POST /enroll`, `POST /identify`, `GET/POST /config` (runtime-configurable match threshold), `DELETE /speakers/{id}`. Enrollment UI at `enroll.michaelgoldstein.co` (see Custom Software table) |
 | Piper TTS | 10200 | Healthy — TTS, wired in as `tts.piper` (voice: `en_US-lessac-medium`, the model actually installed on the container — check before changing `tts_voice` in the pipeline, a mismatch fails silently) |
 | OpenWakeWord | 10400 | Healthy — wired in as `wake_word.openwakeword` |
 | Metrics exporters | 9100/9835/9091 | Healthy — scraped by agent Prometheus |
+
+**Speaker ID in the voice pipeline (Option A, 2026-09-17):** `wyoming-identify-proxy`
+taps every STT call's audio for `speechbrain`'s `/identify`, caching the result in a
+single **time-based** "last speaker" slot (`GET :8300/last-speaker`, ~8s TTL) — not
+per-satellite. Confirmed against home-assistant/core's actual `wyoming/stt.py` before
+building anything: HA's Wyoming STT call carries no device/satellite identifier
+whatsoever, so per-satellite correlation isn't possible at this protocol layer without
+running one proxy instance per satellite (Option A2, not built). `agent-orchestrator`'s
+`/ha/conversation/process` reads that endpoint per request; a confident, recent match
+promotes the request to that speaker's personal scope, otherwise it falls back to the
+original family-scope default. Accepted tradeoff: a same-second cross-satellite mixup
+is possible in theory, in exchange for not needing N proxies + N separate HA pipelines.
 
 HA's own Wyoming integrations for these three were added via
 `Settings → Devices & Services → Add Integration → Wyoming Protocol`
@@ -116,7 +130,9 @@ push to `main`).
 | `mcp-workflow-status` | 5-tool MCP server. Check, resume, and cancel async research tasks via the orchestrator REST API. | Deployed, connected |
 | `mcp-calendar` | 4-tool MCP server. Read/write HA Google Calendar via HA's REST API (`CALENDAR_PROVIDER=ha`, default). Extensible provider pattern — add CalDAV etc. by dropping a file in `providers/`. `list_events` tolerates an LLM-guessed `calendar_id` by aggregating all accessible calendars instead of failing. | Deployed, connected, verified against real calendar data |
 | `google-workspace` | Gmail/Docs/Drive via `taylorwilsdon/workspace-mcp` (PyPI). Deliberately excludes `calendar` from its `--tools` list — `mcp-calendar` is the canonical calendar path, not this. | Deployed; connects even without Google OAuth credentials configured (degrades gracefully, no Gmail/Docs/Drive tools until set up) |
-| `speechbrain-speaker-id` | HTTP service for per-speaker voice identification via ECAPA-TDNN embeddings + Qdrant. `POST /enroll`, `POST /identify`, `GET /speakers`. | Deployed on the inference node (`:8200`), healthy. One speaker enrolled and `/identify` round-trip verified live. Decodes WAV/FLAC/OGG only (not AAC/MP3/M4A — convert client-side first). Still open: a repeatable enrollment flow for other family members, which satellite wires into `/identify`, and confidence-gated tool scope — see `QUESTIONS.md` |
+| `speechbrain-speaker-id` | HTTP service for per-speaker voice identification via ECAPA-TDNN embeddings + Qdrant. `POST /enroll`, `POST /identify`, `GET /speakers`, `DELETE /speakers/{id}`, `GET`/`POST /config` (runtime-configurable match threshold, persisted). | Deployed on the inference node (`:8200`), healthy, and live in the real voice pipeline via `wyoming-identify-proxy` (see below). Decodes WAV/FLAC/OGG only (not AAC/MP3/M4A — convert client-side first) |
+| `speaker-enroll` | Mobile-friendly web UI to record (`MediaRecorder`/`getUserMedia`) or upload a voice sample, name it, and enroll. Converts anything ffmpeg reads (mp4/m4a/mp3/webm/...) to the WAV speechbrain decodes; proxies to speechbrain server-side so the browser never talks to it directly. | Deployed, exposed at `enroll.michaelgoldstein.co` (same trust model as every other exposed service — no extra IP restriction, worth reconsidering given it's biometric enrollment) |
+| `wyoming-identify-proxy` | Transparent Wyoming ASR relay between HA and the real Whisper server; taps the audio for speechbrain `/identify` in the background. `GET :8300/last-speaker` (time-based, ~8s TTL — see note above for why not per-satellite). | Deployed, healthy, verified live with a real spoken recording (correct transcription + correct speaker match) |
 | `ha_custom_component` (`ha_jarvis`) | Home Assistant custom conversation agent. Bridges HA's Assist pipeline to `agent-orchestrator`: tries HA's built-in intent matching first (fast local device control), then `POST {base_url}/ha/conversation/process` for everything else. | Deployed on the HA VM (`/config/custom_components/ha_jarvis`), registered, and set as the **default** Assist pipeline's conversation engine. Verified end-to-end through the real pipeline mechanism, not just direct API calls |
 
 **Stdio MCP subprocess environment note:** `agent-orchestrator` spawns
@@ -208,5 +224,5 @@ curl -X POST https://agent-api.michaelgoldstein.co/chat \
 | Enable `agent-api.michaelgoldstein.co` | **Done** |
 | Configure NFS on Synology DSM | Open — unlocks Phase 3 (Paperless) |
 | Phase 3 deploy | Open — `docker compose --profile phase3 up -d` on agent node, blocked on NFS |
-| SpeechBrain speaker enrollment | Service deployed, healthy, one speaker enrolled and verified — remaining work is a repeatable multi-person enrollment flow and orchestrator wiring, see `QUESTIONS.md` |
+| SpeechBrain speaker enrollment + voice wiring | **Done** — enrollment UI live, speaker ID wired into the real voice pipeline (Option A), verified with a real spoken recording. Other family members can self-enroll via `enroll.michaelgoldstein.co` |
 | Authentik gating other services | Open — Authentik itself is deployed and healthy; deciding which services to protect and wiring `forward_auth` for them is the remaining work |
