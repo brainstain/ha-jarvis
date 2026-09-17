@@ -142,6 +142,37 @@ async def test_tool_selection_prompt_carries_the_real_date(ha_registry, monkeypa
     assert datetime.now(UTC).strftime("%Y-%m-%d") in selection_system_prompt
 
 
+async def test_chat_logs_full_request_and_response_content(ha_registry, monkeypatch):
+    """Regression: nothing logged the actual message/response text anywhere
+    -- only metadata (thread_id, intent, graph, channel). There was no way
+    to answer "what did I ask Jarvis and what did it say back" after the
+    fact. chat() must log a single "chat_content" event, at the one
+    chokepoint every sync graph returns through, carrying both texts.
+    """
+    mcp, session = ha_registry
+    await mcp.discover()
+    llm = ScriptedLLM(
+        tool_call("ha-mcp__light_turn_off", {"entity_id": "light.kitchen"}),
+        {"role": "assistant", "content": "The kitchen light is off."},
+    )
+    install(SIMPLE, llm, mcp, monkeypatch)
+
+    logged: list[dict] = []
+    monkeypatch.setattr(
+        routes.log, "info", lambda event, **kw: logged.append({"event": event, **kw})
+    )
+
+    await routes.chat(request())
+
+    content_logs = [entry for entry in logged if entry["event"] == "chat_content"]
+    assert len(content_logs) == 1
+    entry = content_logs[0]
+    assert entry["message"] == "turn off the kitchen light"
+    assert entry["response"] == "The kitchen light is off."
+    assert entry["user_id"] == "michael"
+    assert entry["scope"] == "family"
+
+
 async def test_synthesis_disables_thinking(ha_registry, monkeypatch):
     """Regression: synthesis previously left `think` unset (effectively
     think:true), which frequently made the model answer from its own

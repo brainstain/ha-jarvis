@@ -25,6 +25,7 @@ volumes:
   perplexica_data:
   paperless_db:
   paperless_redis:
+  loki_data:
 
 services:
   # ── Inference Proxy ────────────────────────────────────────
@@ -298,6 +299,44 @@ services:
     depends_on:
       prometheus:
         condition: service_healthy
+
+  # ── Chat/log aggregation (7-day retention, browsable in Grafana) ────
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    restart: unless-stopped
+    # Host port shifted to 3101 -- 3100 is already Grafana's host mapping
+    # above (":3000" internally); Loki's own default is also 3100.
+    ports:
+      - "3101:3100"
+    volumes:
+      - loki_data:/loki
+      - ./config/loki-config.yaml:/etc/loki/local-config.yaml:ro
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - agent
+    # No healthcheck: grafana/loki is a minimal image with no shell
+    # utilities at all (confirmed live -- no wget, no curl, not even
+    # `which`), unlike the images elsewhere in this repo that at least
+    # ship one of those. Alloy depends on service_started, not
+    # service_healthy, below.
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    restart: unless-stopped
+    volumes:
+      - ./config/alloy-config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+    networks:
+      - agent
+    depends_on:
+      loki:
+        condition: service_started
 
   nvidia-gpu-exporter:
     image: utkuozdemir/nvidia_gpu_exporter:latest

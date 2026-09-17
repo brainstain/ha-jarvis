@@ -1,0 +1,75 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "title": "Chat exchanges (last 24h)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "count_over_time({job=\"agent-orchestrator\"} | json | event=\"chat_content\" [24h])",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ],
+      "datasource": { "type": "loki", "uid": "loki" }
+    },
+    {
+      "title": "Chat requests and responses (full text, 7-day retention)",
+      "type": "logs",
+      "gridPos": { "h": 20, "w": 24, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "{job=\"agent-orchestrator\"} | json | event=\"chat_content\" | line_format \"[{{.scope}}/{{.user_id}}] Q: {{.message}}  ->  A: {{.response}}\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "datasource": { "type": "loki", "uid": "loki" }
+    },
+    {
+      "title": "Queued async requests (research/etc — response arrives later, not shown here)",
+      "type": "logs",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "{job=\"agent-orchestrator\"} | json | event=\"chat_content_queued\" | line_format \"[{{.scope}}/{{.user_id}}] Q: {{.message}}  (task_id={{.task_id}})\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "datasource": { "type": "loki", "uid": "loki" }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["agent", "chat", "logs"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Chat Logs",
+  "uid": "chat-logs",
+  "version": 1
+}
