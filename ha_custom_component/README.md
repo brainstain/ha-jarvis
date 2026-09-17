@@ -1,88 +1,86 @@
 # HA Jarvis
 
-A Home Assistant custom conversation agent powered by [Ollama](https://ollama.com/) for fully local LLM-based voice and text interactions.
-
-## Features
-
-- **Intent-First Architecture**: Tries Home Assistant's built-in intent system first for fast, reliable device control ("turn on the lights"), then falls back to Ollama for everything else
-- **Fully Local**: All processing stays on your network - no cloud APIs needed
-- **Conversation Agent**: Integrates with Home Assistant's conversation pipeline for voice assistants
-- **Model Selection**: Choose from any model available on your Ollama server
-- **Conversation History**: Maintains context across multi-turn conversations
-- **Configurable**: Customize system prompt, temperature, top_p, and more via the UI
+A Home Assistant conversation agent that bridges the Assist pipeline to a
+[ha-jarvis `agent-orchestrator`](../custom-software/agent-orchestrator) — a
+LangGraph-based agent with memory, MCP tool-calling (calendar, notifications,
+workflow status, and more), and model routing running elsewhere on your
+network.
 
 ## How It Works
 
-When you say something to Jarvis, it follows this flow:
+1. **Try HA first** (enabled by default): Your input is sent to Home
+   Assistant's built-in DefaultAgent, which uses intent matching to handle
+   device control commands like "turn on the kitchen lights" without a
+   network round trip.
+2. **Fall back to agent-orchestrator**: If the DefaultAgent doesn't match an
+   intent, the input is forwarded via `POST {base_url}/ha/conversation/process`
+   to the orchestrator, which owns all further reasoning, memory lookup, and
+   MCP tool execution server-side and returns a spoken response.
 
-1. **Try HA first** (enabled by default): Your input is sent to Home Assistant's built-in DefaultAgent, which uses intent matching to handle device control commands like "turn on the kitchen lights", "set thermostat to 72", or "lock the front door"
-2. **Fall back to Ollama**: If the DefaultAgent doesn't match an intent (e.g., "what's a good recipe for pasta?"), the input is sent to your local Ollama LLM for a conversational response
-
-This gives you the best of both worlds: fast, reliable device control through HA's native system, plus the intelligence of a local LLM for general conversation.
+This component does **not** talk to Ollama or any LLM API directly, and it
+does not run its own tool-calling loop — that's entirely the orchestrator's
+job. This component is just the transport between HA's Assist pipeline and
+the orchestrator's HTTP API.
 
 ## Prerequisites
 
 - [Home Assistant](https://www.home-assistant.io/) 2024.1.0 or later
-- [Ollama](https://ollama.com/) running on your network with at least one model pulled
-- A machine with enough resources to run your chosen LLM (GPU recommended)
+- A reachable `agent-orchestrator` instance (see `custom-software/agent-orchestrator`
+  in this repo) with its `/ha/conversation/process` and `/ha/health` endpoints
+  up
 
 ## Installation
 
-### HACS (Recommended)
+### Manual
+
+1. Copy `custom_components/ha_jarvis` to your Home Assistant `custom_components`
+   directory
+2. Restart Home Assistant
+3. Go to **Settings > Devices & Services > Add Integration** and search for
+   "HA Jarvis"
+
+### HACS
 
 1. Add this repository as a custom repository in HACS
 2. Search for "HA Jarvis" and install
 3. Restart Home Assistant
-4. Go to **Settings > Devices & Services > Add Integration** and search for "HA Jarvis"
-
-### Manual
-
-1. Copy `custom_components/ha_jarvis` to your Home Assistant `custom_components` directory
-2. Restart Home Assistant
-3. Go to **Settings > Devices & Services > Add Integration** and search for "HA Jarvis"
+4. Go to **Settings > Devices & Services > Add Integration** and search for
+   "HA Jarvis"
 
 ## Configuration
 
 ### Initial Setup
 
-1. Enter your Ollama server host and port (default: `localhost:11434`)
-2. Select a model from the list of available models on your Ollama server
+1. Enter the base URL of your `agent-orchestrator` instance (e.g.
+   `http://192.168.13.22:8100`)
+2. Optionally enter a bearer token — the orchestrator's endpoint only checks
+   that an `Authorization: Bearer <token>` header is present, not its value,
+   so this is mostly for defense-in-depth against stray local clients
 
 ### Options
 
-After setup, you can configure these options:
-
 | Option | Default | Description |
 |--------|---------|-------------|
-| Try HA First | Yes | Try Home Assistant's built-in intent matching before Ollama. Handles device control commands natively. |
-| System Prompt | JARVIS personality | The system prompt that defines the assistant's personality |
-| Max History | 10 | Number of conversation turns to keep in context |
-| Temperature | 0.7 | Controls randomness (0.0 = deterministic, 2.0 = very random) |
-| Top P | 0.9 | Nucleus sampling parameter |
-| Keep Alive | 5m | How long to keep the model loaded in memory |
+| Try HA First | Yes | Try Home Assistant's built-in intent matching before forwarding to the orchestrator. Handles device control commands natively and avoids a network round trip for simple commands. |
 
 ### Using as a Voice Assistant
 
 1. Go to **Settings > Voice Assistants**
 2. Create a new assistant or edit an existing one
 3. Set the **Conversation Agent** to "Jarvis"
-4. Optionally configure STT (Speech-to-Text) and TTS (Text-to-Speech) engines
-
-## Recommended Models
-
-| Model | Size | Best For |
-|-------|------|----------|
-| `llama3.1` | 8B | General purpose, good balance of speed and quality |
-| `mistral` | 7B | Fast responses, good for quick interactions |
-| `llama3.1:70b` | 70B | Highest quality, requires significant GPU memory |
-| `phi3` | 3.8B | Lightweight, fastest responses |
+4. Configure STT (Speech-to-Text) and TTS (Text-to-Speech) engines to point
+   at your Wyoming Whisper/Piper containers
 
 ## Troubleshooting
 
-- **Cannot connect**: Ensure Ollama is running (`ollama serve`) and accessible from your HA instance
-- **No models found**: Pull a model first: `ollama pull llama3.1`
-- **Slow responses**: Consider using a smaller model or adding GPU acceleration
-- **Timeout errors**: Increase the timeout or use a faster model
+- **Cannot connect** (setup fails): Ensure `agent-orchestrator` is running
+  and `GET {base_url}/ha/health` is reachable from the HA host.
+- **Errors during conversation**: Check `docker logs agent-orchestrator` on
+  the node running it — the orchestrator does all the actual reasoning and
+  tool-calling, so failures there surface as a spoken error in HA.
+- **Device control seems to bypass the orchestrator**: That's expected when
+  "Try HA First" is on and HA's own intent system matches the command — only
+  unmatched input is forwarded to the orchestrator.
 
 ## License
 
