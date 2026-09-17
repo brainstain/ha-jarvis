@@ -7,10 +7,22 @@ import re
 
 import httpx
 import structlog
+from prometheus_client import Counter
 from pydantic import ValidationError
 
 from agent.api.schemas import RoutingDecision
 from agent.config import Settings
+
+_router_fallback = Counter(
+    "agent_router_fallback_total",
+    "Times the MetaRouter fell back to FALLBACK instead of parsing a decision",
+    ["reason"],
+)
+_router_heuristic = Counter(
+    "agent_router_heuristic_total",
+    "Times a heuristic fast-path bypassed the LLM router",
+    ["path"],
+)
 
 # Patterns that indicate the user needs async research or a multi-step plan.
 _RESEARCH_RE = re.compile(
@@ -172,7 +184,9 @@ class MetaRouter:
         """
         fast = self._heuristic(message)
         if fast is not None:
-            log.debug("router_heuristic", message=message[:60])
+            path = fast.intent  # "conversation", "command", or "question"
+            _router_heuristic.labels(path=path).inc()
+            log.debug("router_heuristic", path=path, message=message[:60])
             if user_context.get("source") == "voice" and fast.execution_mode == "sync":
                 fast.output_channel = "voice"
             return fast
@@ -212,6 +226,8 @@ class MetaRouter:
             content = data["choices"][0]["message"]["content"]
             decision = self._parse(content)
         except (httpx.HTTPError, KeyError, json.JSONDecodeError, ValidationError) as exc:
+            reason = type(exc).__name__
+            _router_fallback.labels(reason=reason).inc()
             log.warning("router_fallback", error=str(exc), message=message[:80])
             decision = FALLBACK.model_copy()
 

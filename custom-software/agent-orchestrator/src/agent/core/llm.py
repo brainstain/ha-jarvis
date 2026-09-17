@@ -13,6 +13,14 @@ from typing import Any
 
 import httpx
 import structlog
+from prometheus_client import Histogram
+
+_llm_latency = Histogram(
+    "agent_llm_latency_seconds",
+    "LLM call latency by model",
+    ["model"],
+    buckets=[0.5, 1, 2, 5, 10, 20, 30, 60],
+)
 
 from agent.config import Settings
 
@@ -104,6 +112,7 @@ class LLMClient:
 
         elapsed = time.monotonic() - t0
         used_model = model or self.settings.litellm_model
+        _llm_latency.labels(model=used_model).observe(elapsed)
         log.debug("llm_call_done", model=used_model, seconds=round(elapsed, 2))
 
         choices = data.get("choices") or []
