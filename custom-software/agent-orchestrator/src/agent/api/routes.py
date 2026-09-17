@@ -337,20 +337,22 @@ async def _run_simple(
         if last is not None:
             confidence = 0.4 if last.get("error") else 0.9
 
-        # A single think:true attempt — no retry. Its failure mode is empty
-        # content (budget exhausted mid-thought, see synthesis_max_tokens'
-        # comment in config.py), which the canned fallback below already
-        # covers safely. An earlier think:false retry attempt here was
-        # dropped based on findings against a model tier ("assistant-fast",
-        # qwen3:4b) that no longer exists (removed in the "assistant"-only
-        # config, PR #11) — worth re-evaluating think:false against the
-        # current "assistant" (qwen3:30b) tier if empty-content rate is
-        # still high after the budget fix.
+        # Re-evaluated against the current "assistant" (qwen3:30b) tier, per
+        # this comment's own earlier note: with think left at its default
+        # (effectively think:true), the model frequently answered from its
+        # own inline reasoning instead of the tool result and never
+        # produced a real answer at all — confirmed live, 3 of 4 identical
+        # trials against a known tool result fabricated a plausible but
+        # wrong answer (not a truncated fragment the check below would
+        # catch — a complete, confident, well-formed sentence that simply
+        # ignored the actual data). think:False eliminated it: 0 of 4
+        # trials wrong in the same test. Keep it.
         try:
             reply = await llm.complete(
                 messages,
                 model=settings.fast_model,
                 max_tokens=settings.synthesis_max_tokens,
+                extra_body={"think": False},
             )
             text = (reply.get("content") or "").strip()
         except (httpx.HTTPError, IndexError, KeyError, ValueError) as exc:
