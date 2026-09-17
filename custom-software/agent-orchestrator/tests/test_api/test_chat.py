@@ -187,10 +187,16 @@ async def test_voice_requests_get_the_speech_prompt(ha_registry, monkeypatch):
     assert response.output_channel == "voice"
 
 
-async def test_unwired_graphs_still_return_501(monkeypatch):
+async def test_unknown_graph_returns_501(monkeypatch):
+    """routes.chat's final else-branch: any graph value other than
+    simple/multistep/interactive still 501s. In practice the router only
+    ever pairs graph="research" with execution_mode="async" (intercepted
+    earlier, at the top of chat()), so this exercises the defensive case
+    of that pairing being violated rather than a reachable router output.
+    """
     llm = ScriptedLLM()
     decision = RoutingDecision(
-        intent="diagnostic", graph="interactive", tools_needed=[], execution_mode="sync"
+        intent="research", graph="research", tools_needed=[], execution_mode="sync"
     )
     install(decision, llm, None, monkeypatch)
 
@@ -199,6 +205,27 @@ async def test_unwired_graphs_still_return_501(monkeypatch):
     with pytest.raises(HTTPException) as excinfo:
         await routes.chat(request())
     assert excinfo.value.status_code == 501
+
+
+async def test_interactive_graph_degrades_gracefully_without_mcp(monkeypatch, tmp_path):
+    """Regression: the interactive graph IS wired (unlike the name of the
+    test this replaces implied) and runs even with mcp=None — it must not
+    crash. It used to: the no-MCP tool-executor fallback was a plain sync
+    `lambda s: {}`, and diagnose_node always `await`s the injected
+    executor, so hitting this exact path raised
+    TypeError("object dict can't be used in 'await' expression") instead
+    of answering. See agent.api.routes._no_tools_executor.
+    """
+    monkeypatch.setattr(routes.settings, "langgraph_db", str(tmp_path / "checkpoints.db"))
+    llm = ScriptedLLM({"role": "assistant", "content": "I can't do that right now."})
+    decision = RoutingDecision(
+        intent="diagnostic", graph="interactive", tools_needed=[], execution_mode="sync"
+    )
+    install(decision, llm, None, monkeypatch)
+
+    response = await routes.chat(request())
+
+    assert response.message
 
 
 async def test_health_reports_mcp_status(ha_registry, monkeypatch):

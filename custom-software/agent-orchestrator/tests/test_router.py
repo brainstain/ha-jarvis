@@ -88,6 +88,21 @@ async def test_llm_call_disables_thinking_and_constrains_to_schema():
 
 
 @pytest.mark.asyncio
+async def test_short_question_reaches_llm_for_correct_tool_category():
+    """Regression: a blanket "short question -> FALLBACK" heuristic used to
+    short-circuit every brief '?' message to tools_needed=["memory"],
+    so a calendar question never reached the LLM classifier and mcp-calendar
+    was never selected. Short questions must now reach the LLM so it can
+    pick the right category.
+    """
+    body = ('{"intent":"question","graph":"simple","tools_needed":["calendar"],'
+            '"execution_mode":"sync","output_channel":"webui","parallel_steps":false}')
+    router = make_router(lambda req: completion(body))
+    decision = await router.route("What's on my calendar today?", {"source": "webui"})
+    assert decision.tools_needed == ["calendar"]
+
+
+@pytest.mark.asyncio
 async def test_falls_back_on_malformed_json():
     router = make_router(lambda req: completion("I think you want the lights off!"))
     decision = await router.route("lights", {"source": "webui"})

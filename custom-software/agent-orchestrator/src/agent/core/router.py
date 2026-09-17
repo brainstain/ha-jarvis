@@ -159,9 +159,16 @@ class MetaRouter:
     def _heuristic(self, message: str) -> RoutingDecision | None:
         """Return a decision instantly for obvious cases, bypassing the LLM.
 
-        Saves a full router-classification round trip for greetings, simple
-        questions, and single home_assistant actuations. Research-flavored
-        phrasing always goes to the LLM.
+        Saves a full router-classification round trip for greetings and
+        single home_assistant actuations — the only cases where the right
+        tools_needed is knowable without classification. Everything else,
+        including short questions, goes to the LLM: a blanket "any short
+        question needs only memory" heuristic used to live here, but it
+        silently starved every other category (calendar, search, ...) of
+        ever being selected for exactly the messages most likely to need
+        them — e.g. "What's on my calendar today?" always fell back to
+        tools_needed=["memory"] and never called mcp-calendar. Research-
+        flavored phrasing always goes to the LLM too.
         """
         if _RESEARCH_RE.search(message):
             return None
@@ -172,8 +179,6 @@ class MetaRouter:
             return FALLBACK.model_copy(
                 update={"intent": "command", "tools_needed": ["home_assistant"]}
             )
-        if len(message) < 60 and "?" in message and not _RESEARCH_RE.search(message):
-            return FALLBACK.model_copy()
         return None
 
     async def route(self, message: str, user_context: dict) -> RoutingDecision:
