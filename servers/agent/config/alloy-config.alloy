@@ -1,0 +1,40 @@
+// Ships agent-orchestrator's container logs (structlog JSON lines,
+// including the "chat_content"/"chat_content_queued" events) to Loki.
+// Scoped to agent-orchestrator only, not every container on this node --
+// this node also runs Immich, whose logs would otherwise dominate the
+// 7-day retention window for no benefit. Add more container names to the
+// regex below if broader coverage is wanted later.
+
+discovery.docker "containers" {
+	host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "filtered" {
+	targets = discovery.docker.containers.targets
+
+	rule {
+		// Docker's own API returns container names with a leading slash.
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(agent-orchestrator)"
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+}
+
+loki.source.docker "default" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.filtered.output
+	labels     = {"job" = "agent-orchestrator"}
+	forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

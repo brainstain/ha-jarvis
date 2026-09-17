@@ -2,11 +2,14 @@
 
 Prometheus + Grafana run on the agent node and scrape all three homelab
 nodes (gateway, agent, inference). NAS is storage-only and isn't scraped.
+Loki + Alloy (also agent node) handle log aggregation — currently just
+agent-orchestrator's chat content, see "Chat logs" below.
 
 - Grafana: `https://grafana.michaelgoldstein.co` (also `agent:3100`)
 - Prometheus: `https://prometheus.michaelgoldstein.co` (also `agent:9090`)
+- Loki: `agent:3101` (no public subdomain — query it through Grafana, not directly)
 - Config lives in `servers/agent/config/prometheus.yml`, `alerts.yml`,
-  and `grafana/provisioning/`
+  `loki-config.yaml`, `alloy-config.alloy`, and `grafana/provisioning/`
 
 ## What's scraped
 
@@ -37,6 +40,28 @@ Provisioned automatically from `servers/agent/config/grafana/provisioning/dashbo
 - **Agent Services** — agent-orchestrator chat request rate/latency, LLM call
   latency by model, MCP tool invocation rate, router fallback rate, Qdrant
   point counts and memory, LiteLLM request rate and latency
+- **Chat Logs** — the actual request/response text for every synchronous chat
+  exchange (voice, webui, HA), 7-day retention. Async/research requests only
+  show the queued request (the real response arrives later via a separate
+  path this doesn't capture yet — see "Known limitations")
+
+## Chat logs (2026-09-17)
+
+`agent-orchestrator` logs a `chat_content` event (full message + response
+text, `user_id`, `scope`, `speaker_id`, `channel`, `tools_used`) at the one
+point every synchronous graph (simple/multistep/interactive) returns
+through. Alloy tails that container's Docker logs and ships them to Loki;
+the **Chat Logs** dashboard queries Loki directly (LogQL, not PromQL).
+
+Scoped to `agent-orchestrator` only — Alloy's `discovery.relabel` filters
+out every other container on the node (notably Immich, whose logs would
+otherwise dominate the retention window for no benefit). To capture more
+services, add their container names to the regex in `alloy-config.alloy`.
+
+**Retention is enforced by Loki itself**, not Docker's log rotation:
+`compactor.retention_enabled: true` + `limits_config.retention_period: 168h`
+in `loki-config.yaml`. Nothing needs to be done to keep this at 7 days going
+forward — the compactor deletes older chunks on its own ~10-minute cycle.
 
 ## Alerting
 
@@ -81,3 +106,9 @@ service is tracked as open work.
   changes, e.g. after a `grafana_data` volume wipe).
 - Redis (gateway) and Caddy/Pi-hole/Authentik have no exporters — only
   covered indirectly via Uptime Kuma's HTTP checks and gateway's node-exporter.
+- **Async/research chat requests aren't fully logged.** `chat_content` only
+  fires for the synchronous graphs; an async request logs
+  `chat_content_queued` (the question, not the answer) at queue time, and
+  the eventual response — delivered later via Celery + mcp-notifications —
+  isn't logged anywhere today. Not built: a matching log call at the point
+  the async task actually completes and delivers its result.

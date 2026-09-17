@@ -188,6 +188,19 @@ async def chat(request: ChatRequest) -> ChatResponse:
     _t0 = time.monotonic()
     if decision.execution_mode == "async":
         task_id = _queue_task(thread_id, request)
+        # No "chat_content" here: the real response doesn't exist yet (it
+        # lands later via the Celery task + mcp-notifications). Logging the
+        # request alone would silently mislead anyone reading the Grafana
+        # panel into thinking this is the full exchange.
+        log.info(
+            "chat_content_queued",
+            thread_id=thread_id,
+            user_id=request.user_id,
+            scope=request.scope,
+            source=request.source,
+            message=request.message,
+            task_id=task_id,
+        )
         return ChatResponse(
             message="I'll look into that and let you know when it's ready.",
             thread_id=thread_id,
@@ -213,6 +226,25 @@ async def chat(request: ChatRequest) -> ChatResponse:
     for tool in result.tools_used or []:
         _tools_used.labels(tool=tool).inc()
     _chat_latency.labels(graph=decision.graph).observe(time.monotonic() - _t0)
+
+    # The one place every sync graph (simple/multistep/interactive) funnels
+    # through before returning -- single chokepoint, so this covers all of
+    # them without duplicating the log call in each _run_* helper.
+    log.info(
+        "chat_content",
+        thread_id=thread_id,
+        user_id=request.user_id,
+        scope=request.scope,
+        source=request.source,
+        speaker_id=request.speaker_id,
+        channel=channel,
+        graph=decision.graph,
+        message=request.message,
+        response=result.message,
+        confidence=result.confidence,
+        tools_used=result.tools_used,
+    )
+
     return result
 
 
