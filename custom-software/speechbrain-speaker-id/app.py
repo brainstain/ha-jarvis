@@ -12,15 +12,18 @@ configurable threshold (default 0.7).
 """
 
 import io
+import json
 import os
 import uuid
 import logging
+from pathlib import Path
 
 import numpy as np
 import soundfile as sf
 import torch
 import torchaudio
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel, Field
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 from speechbrain.inference.speaker import EncoderClassifier
@@ -30,11 +33,32 @@ log = logging.getLogger("speechbrain-speaker-id")
 
 QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.environ.get("QDRANT_PORT", "6333"))
-SIMILARITY_THRESHOLD = float(os.environ.get("SIMILARITY_THRESHOLD", "0.7"))
 DEVICE = os.environ.get("DEVICE", "cpu")
 COLLECTION = "speakers"
 EMBEDDING_DIM = 192  # ECAPA-TDNN output
 TARGET_SR = 16000
+
+# The threshold is runtime-configurable (POST /config), not just an env var:
+# tune it after seeing real confidence scores rather than needing a redeploy.
+# Persisted to the same mounted volume as the Qdrant-independent state, so
+# it survives a container restart; the env var is only the first-ever default.
+_CONFIG_PATH = Path("/data/speakers/config.json")
+_DEFAULT_THRESHOLD = float(os.environ.get("SIMILARITY_THRESHOLD", "0.7"))
+
+
+def _load_threshold() -> float:
+    try:
+        return float(json.loads(_CONFIG_PATH.read_text())["threshold"])
+    except (FileNotFoundError, KeyError, ValueError, json.JSONDecodeError):
+        return _DEFAULT_THRESHOLD
+
+
+def _save_threshold(value: float) -> None:
+    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _CONFIG_PATH.write_text(json.dumps({"threshold": value}))
+
+
+SIMILARITY_THRESHOLD = _load_threshold()
 
 app = FastAPI(title="speechbrain-speaker-id")
 
@@ -160,3 +184,36 @@ def speakers() -> dict:
             {"user_id": uid, "samples": count} for uid, count in sorted(users.items())
         ]
     }
+
+
+@app.delete("/speakers/{user_id}")
+def delete_speaker(user_id: str) -> dict:
+    """Remove every enrolled sample for a speaker (e.g. to redo a bad enrollment)."""
+    qdrant.delete(
+        collection_name=COLLECTION,
+        points_selector=qm.FilterSelector(
+            filter=qm.Filter(
+                must=[qm.FieldCondition(key="user_id", match=qm.MatchValue(value=user_id))]
+            )
+        ),
+    )
+    log.info("Deleted all samples for user_id=%s", user_id)
+    return {"status": "deleted", "user_id": user_id}
+
+
+class ThresholdUpdate(BaseModel):
+    threshold: float = Field(ge=0.0, le=1.0)
+
+
+@app.get("/config")
+def get_config() -> dict:
+    return {"threshold": SIMILARITY_THRESHOLD}
+
+
+@app.post("/config")
+def set_config(update: ThresholdUpdate) -> dict:
+    global SIMILARITY_THRESHOLD
+    SIMILARITY_THRESHOLD = update.threshold
+    _save_threshold(update.threshold)
+    log.info("Similarity threshold updated to %s", update.threshold)
+    return {"threshold": SIMILARITY_THRESHOLD}
