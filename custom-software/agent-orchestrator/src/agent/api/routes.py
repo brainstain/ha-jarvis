@@ -221,6 +221,18 @@ async def chat(request: ChatRequest) -> ChatResponse:
 # ──────────────────────────────────────────────────────────────────────
 
 
+async def _no_tools_executor(state: dict[str, Any]) -> dict[str, Any]:
+    """Fallback tool executor when the MCP registry isn't available.
+
+    Must be async: graph nodes always ``await`` the injected executor, so a
+    plain ``lambda s: {}`` here raises TypeError ("dict can't be used in
+    'await' expression") the moment it's actually hit — i.e. exactly when
+    MCP is down and this fallback exists to keep the request degrading
+    gracefully instead of crashing.
+    """
+    return {}
+
+
 def _select_tools(decision: RoutingDecision) -> list[Any]:
     """Tools visible for this request: category filter, minus tripped breakers."""
     if _tool_filter is None or not decision.tools_needed:
@@ -396,7 +408,7 @@ async def _run_multistep(
     mcp_reg = _mcp
     tf = _tool_filter
     step_executor = (
-        make_parallel_executor(mcp_reg, guard) if mcp_reg else (lambda s: {})
+        make_parallel_executor(mcp_reg, guard) if mcp_reg else _no_tools_executor
     )
     planner = make_planner(llm)
     synthesizer = make_synthesizer(llm, speech=speech)
@@ -452,7 +464,7 @@ async def _run_interactive(
     tool_exec = (
         make_tool_executor(llm, mcp_reg, _tool_filter, guard, decision.tools_needed)
         if mcp_reg and _tool_filter
-        else (lambda s: {})
+        else _no_tools_executor
     )
     synthesizer = make_synthesizer(llm, speech=speech)
 

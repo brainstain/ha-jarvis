@@ -99,7 +99,14 @@ def test_shipped_config_is_valid():
     """config/mcp_servers.json must actually load — it ships in the image."""
     repo_config = Path(__file__).resolve().parents[2] / "config" / "mcp_servers.json"
     enabled = load_server_configs(repo_config)
-    assert [c.name for c in enabled] == ["ha-mcp"]
+    assert [c.name for c in enabled] == [
+        "ha-mcp",
+        "mcp-memory-scoped",
+        "mcp-notifications",
+        "mcp-workflow-status",
+        "mcp-calendar",
+        "google-workspace",
+    ]
     assert enabled[0].transport == "sse"
 
 
