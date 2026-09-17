@@ -155,7 +155,13 @@ services:
   speechbrain:
     image: ${SPEECHBRAIN_IMAGE:-ghcr.io/brainstain/speechbrain-speaker-id:latest}
     build:
-      context: ../../custom-software/speechbrain-speaker-id
+      # Relative to the DEPLOYED layout (/opt/homelab-ai/<node>/, with
+      # custom-software/ a sibling one level up) -- not the repo's own
+      # depth (servers/inference/ -> ../../custom-software/ from repo
+      # root). Confirmed live: the repo-depth path 404s on deploy with
+      # "unable to prepare context: path ... not found" the first time
+      # this service was actually built on the node.
+      context: ../custom-software/speechbrain-speaker-id
       dockerfile: Dockerfile
     container_name: speechbrain
     restart: unless-stopped
