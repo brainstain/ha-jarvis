@@ -27,9 +27,11 @@ class ScriptedLLM:
     def __init__(self, *messages):
         self.queue = list(messages)
         self.tools_seen = []
+        self.messages_seen = []
 
     async def complete(self, messages, extra_body=None, **kwargs):
         self.tools_seen.append(extra_body)
+        self.messages_seen.append(messages)
         if not self.queue:
             return {"role": "assistant", "content": "done"}
         outcome = self.queue.pop(0)
@@ -110,6 +112,32 @@ async def test_simple_graph_executes_a_tool_through_the_hub(ha_registry, monkeyp
     # into the grammar-selection schema (see render_tool_selection_schema).
     names = [n for n in llm.tools_seen[0]["format"]["properties"]["tool"]["enum"] if n != "none"]
     assert names == ["ha-mcp__climate_set", "ha-mcp__light_turn_off"]
+
+
+async def test_tool_selection_prompt_carries_the_real_date(ha_registry, monkeypatch):
+    """Regression: _run_simple's tool-selection call built its system prompt
+    inline instead of reusing graphs.nodes.tools._tool_selection_system(),
+    so fixing the date-injection bug there didn't actually fix the path
+    real chat requests use. Confirmed live: three consecutive identical
+    "what's on my calendar today" requests picked 2025-01-20, then
+    2025-01-15..16, then 2025-01-15..16 again for "today" — a year and a
+    half off, and inconsistent with itself. _run_simple must use the same
+    date-aware prompt builder, not a separate copy.
+    """
+    from datetime import UTC, datetime
+
+    mcp, session = ha_registry
+    await mcp.discover()
+    llm = ScriptedLLM(
+        tool_call("ha-mcp__light_turn_off", {"entity_id": "light.kitchen"}),
+        {"role": "assistant", "content": "The kitchen light is off."},
+    )
+    install(SIMPLE, llm, mcp, monkeypatch)
+
+    await routes.chat(request())
+
+    selection_system_prompt = llm.messages_seen[0][0]["content"]
+    assert datetime.now(UTC).strftime("%Y-%m-%d") in selection_system_prompt
 
 
 async def test_synthesis_disables_thinking(ha_registry, monkeypatch):

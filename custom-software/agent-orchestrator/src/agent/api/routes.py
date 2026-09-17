@@ -58,6 +58,7 @@ from agent.graphs.nodes import (
     make_synthesizer,
     make_tool_executor,
 )
+from agent.graphs.nodes.tools import _tool_selection_system
 from agent.graphs.research import dispatch_research
 from agent.graphs.simple import build_simple_graph
 from agent.memory.backend import get_store
@@ -281,8 +282,8 @@ async def _run_simple(
                     {
                         "role": "system",
                         "content": (
-                            'Pick the single tool that answers the user\'s request, or '
-                            '"none" if no tool fits.\n\nAvailable tools:\n'
+                            _tool_selection_system()
+                            + "\n\nAvailable tools:\n"
                             + render_tool_descriptions(tools)
                         ),
                     },
