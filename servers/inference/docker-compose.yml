@@ -190,6 +190,40 @@ services:
       retries: 3
       start_period: 30s
 
+  # ── Speaker Enrollment UI (Phase 2) ─────────────────────────
+  # Mobile-friendly page to record/upload a voice sample + name it, and
+  # manage enrolled speakers / the match confidence threshold. Talks to
+  # speechbrain over the Docker network (container name), never exposed
+  # to the browser directly -- see custom-software/speaker-enroll/app.py.
+  speaker-enroll:
+    image: ${SPEAKER_ENROLL_IMAGE:-ghcr.io/brainstain/speaker-enroll:latest}
+    build:
+      # See speechbrain's build.context comment above -- same deployed-
+      # layout reasoning applies here.
+      context: ../custom-software/speaker-enroll
+      dockerfile: Dockerfile
+    container_name: speaker-enroll
+    restart: unless-stopped
+    profiles: [phase2]
+    depends_on:
+      - speechbrain
+    ports:
+      - "8201:8201"
+    environment:
+      SPEECHBRAIN_URL: "http://speechbrain:8200"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      - inference
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8201/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
   # ── Wake Word Detection ────────────────────────────────────
   openwakeword:
     image: rhasspy/wyoming-openwakeword:latest

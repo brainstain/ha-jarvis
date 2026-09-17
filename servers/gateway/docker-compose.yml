@@ -172,6 +172,7 @@ services:
         192.168.13.29 perplexica.michaelgoldstein.co
         192.168.13.29 qdrant.michaelgoldstein.co
         192.168.13.29 agent-api.michaelgoldstein.co
+        192.168.13.29 enroll.michaelgoldstein.co
         192.168.13.29 paperless.michaelgoldstein.co
         192.168.13.29 paperless-ai.michaelgoldstein.co
         192.168.13.26 ha.michaelgoldstein.co

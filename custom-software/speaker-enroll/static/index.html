@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Enrollment</title>
+<style>
+  :root {
+    --bg: #f5f5f7; --card: #ffffff; --text: #1c1c1e; --muted: #6e6e73;
+    --accent: #0a84ff; --accent-down: #086ad1; --danger: #ff3b30;
+    --border: #e5e5ea; --ok: #34c759;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000; --card: #1c1c1e; --text: #f5f5f7; --muted: #98989d;
+      --accent: #0a84ff; --accent-down: #2f95ff; --border: #38383a; --ok: #30d158;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 480px; margin-inline: auto;
+  }
+  h1 { font-size: 1.4rem; margin: 8px 0 4px; }
+  p.sub { color: var(--muted); margin-top: 0; font-size: 0.9rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 1rem; margin: 0 0 12px; }
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; }
+  input[type=text] {
+    width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font-size: 1rem; margin-bottom: 14px;
+  }
+  button {
+    font-size: 1rem; padding: 12px 16px; border-radius: 12px; border: none;
+    background: var(--accent); color: white; font-weight: 600; cursor: pointer;
+    width: 100%; margin-bottom: 8px;
+  }
+  button:active { background: var(--accent-down); }
+  button.secondary { background: var(--border); color: var(--text); }
+  button.danger { background: var(--danger); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.small { width: auto; padding: 6px 12px; font-size: 0.85rem; margin: 0; }
+  .row { display: flex; gap: 8px; }
+  .row button { flex: 1; }
+  .rec-indicator {
+    display: none; align-items: center; gap: 8px; color: var(--danger);
+    font-size: 0.9rem; margin-bottom: 10px;
+  }
+  .rec-indicator.active { display: flex; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger);
+    animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+  audio { width: 100%; margin: 10px 0; display: none; }
+  #status { font-size: 0.9rem; margin-top: 8px; min-height: 1.2em; }
+  #status.ok { color: var(--ok); }
+  #status.err { color: var(--danger); }
+  .divider { text-align: center; color: var(--muted); font-size: 0.8rem; margin: 14px 0; }
+  ul#speakerList { list-style: none; padding: 0; margin: 0; }
+  ul#speakerList li {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  ul#speakerList li:last-child { border-bottom: none; }
+  .speaker-name { font-weight: 500; }
+  .speaker-samples { color: var(--muted); font-size: 0.85rem; }
+  .threshold-row { display: flex; align-items: center; gap: 10px; }
+  .threshold-row input[type=range] { flex: 1; }
+  .threshold-val { min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+  <h1>Voice Enrollment</h1>
+  <p class="sub">Record or upload a short clip (5-15s of clear speech), name it, and enroll.</p>
+
+  <div class="card">
+    <h2>New sample</h2>
+    <label for="name">Name</label>
+    <input type="text" id="name" placeholder="e.g. Michael" autocomplete="off">
+
+    <div class="rec-indicator" id="recIndicator"><span class="dot"></span> Recording…</div>
+    <div class="row">
+      <button id="recordBtn" type="button">🎙️ Record</button>
+      <button id="stopBtn" type="button" class="danger" style="display:none">⏹ Stop</button>
+    </div>
+    <audio id="preview" controls></audio>
+
+    <div class="divider">— or —</div>
+    <label for="fileInput">Upload audio or video (mp4, m4a, mp3, wav…)</label>
+    <input type="file" id="fileInput" accept="audio/*,video/*">
+
+    <button id="enrollBtn" type="button" disabled>Enroll</button>
+    <div id="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>Enrolled speakers</h2>
+    <ul id="speakerList"><li class="speaker-samples">Loading…</li></ul>
+  </div>
+
+  <div class="card">
+    <h2>Match confidence threshold</h2>
+    <p class="sub" style="margin-top:-6px">
+      Higher = stricter matching (fewer false positives, more "unknown"
+      results). Lower = looser (more matches, more risk of mistaking one
+      person for another).
+    </p>
+    <div class="threshold-row">
+      <input type="range" id="thresholdSlider" min="0.3" max="0.95" step="0.01" value="0.7">
+      <span class="threshold-val" id="thresholdVal">0.70</span>
+    </div>
+    <button id="saveThresholdBtn" type="button" class="secondary" style="margin-top:10px">Save threshold</button>
+    <div id="thresholdStatus"></div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordedBlob = null;
+let selectedFile = null;
+
+function setStatus(msg, kind) {
+  const el = $('status');
+  el.textContent = msg;
+  el.className = kind || '';
+}
+
+function updateEnrollEnabled() {
+  $('enrollBtn').disabled = !($('name').value.trim() && (recordedBlob || selectedFile));
+}
+$('name').addEventListener('input', updateEnrollEnabled);
+
+// --- Recording ---
+$('recordBtn').addEventListener('click', async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      recordedBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      selectedFile = null;
+      $('fileInput').value = '';
+      const url = URL.createObjectURL(recordedBlob);
+      const preview = $('preview');
+      preview.src = url;
+      preview.style.display = 'block';
+      updateEnrollEnabled();
+      stream.getTracks().forEach(t => t.stop());
+    };
+    mediaRecorder.start();
+    $('recordBtn').style.display = 'none';
+    $('stopBtn').style.display = 'block';
+    $('recIndicator').classList.add('active');
+    setStatus('', '');
+  } catch (err) {
+    setStatus('Microphone access failed: ' + err.message, 'err');
+  }
+});
+
+$('stopBtn').addEventListener('click', () => {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+  $('recordBtn').style.display = 'block';
+  $('stopBtn').style.display = 'none';
+  $('recIndicator').classList.remove('active');
+});
+
+// --- File upload ---
+$('fileInput').addEventListener('change', (e) => {
+  selectedFile = e.target.files[0] || null;
+  if (selectedFile) {
+    recordedBlob = null;
+    const preview = $('preview');
+    preview.src = URL.createObjectURL(selectedFile);
+    preview.style.display = 'block';
+  }
+  updateEnrollEnabled();
+});
+
+// --- Enroll ---
+$('enrollBtn').addEventListener('click', async () => {
+  const name = $('name').value.trim();
+  const blob = recordedBlob || selectedFile;
+  if (!name || !blob) return;
+
+  $('enrollBtn').disabled = true;
+  setStatus('Uploading and enrolling…', '');
+
+  const form = new FormData();
+  form.append('name', name);
+  const filename = selectedFile ? selectedFile.name : 'recording.webm';
+  form.append('audio', blob, filename);
+
+  try {
+    const resp = await fetch('/enroll', { method: 'POST', body: form });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || 'Enrollment failed');
+    setStatus(`Enrolled "${data.user_id}" ✓`, 'ok');
+    recordedBlob = null;
+    selectedFile = null;
+    $('fileInput').value = '';
+    $('preview').style.display = 'none';
+    loadSpeakers();
+  } catch (err) {
+    setStatus(err.message, 'err');
+  } finally {
+    updateEnrollEnabled();
+  }
+});
+
+// --- Speaker list ---
+async function loadSpeakers() {
+  const list = $('speakerList');
+  try {
+    const resp = await fetch('/speakers');
+    const data = await resp.json();
+    if (!data.speakers || data.speakers.length === 0) {
+      list.innerHTML = '<li class="speaker-samples">No one enrolled yet.</li>';
+      return;
+    }
+    list.innerHTML = '';
+    for (const s of data.speakers) {
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <span>
+          <span class="speaker-name">${s.user_id}</span>
+          <span class="speaker-samples"> — ${s.samples} sample${s.samples === 1 ? '' : 's'}</span>
+        </span>
+      `;
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Remove';
+      delBtn.className = 'small danger';
+      delBtn.onclick = async () => {
+        if (!confirm(`Remove all samples for "${s.user_id}"?`)) return;
+        await fetch(`/speakers/${encodeURIComponent(s.user_id)}`, { method: 'DELETE' });
+        loadSpeakers();
+      };
+      li.appendChild(delBtn);
+      list.appendChild(li);
+    }
+  } catch (err) {
+    list.innerHTML = '<li class="speaker-samples">Could not load speakers.</li>';
+  }
+}
+
+// --- Threshold ---
+$('thresholdSlider').addEventListener('input', () => {
+  $('thresholdVal').textContent = parseFloat($('thresholdSlider').value).toFixed(2);
+});
+
+async function loadThreshold() {
+  try {
+    const resp = await fetch('/config');
+    const data = await resp.json();
+    $('thresholdSlider').value = data.threshold;
+    $('thresholdVal').textContent = parseFloat(data.threshold).toFixed(2);
+  } catch (err) { /* keep default */ }
+}
+
+$('saveThresholdBtn').addEventListener('click', async () => {
+  const val = parseFloat($('thresholdSlider').value);
+  const statusEl = $('thresholdStatus');
+  try {
+    const resp = await fetch('/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threshold: val }),
+    });
+    if (!resp.ok) throw new Error('Save failed');
+    statusEl.textContent = 'Saved ✓';
+    statusEl.className = 'ok';
+  } catch (err) {
+    statusEl.textContent = 'Could not save threshold';
+    statusEl.className = 'err';
+  }
+  setTimeout(() => { statusEl.textContent = ''; }, 2500);
+});
+
+loadSpeakers();
+loadThreshold();
+</script>
+</body>
+</html>
