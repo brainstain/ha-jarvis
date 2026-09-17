@@ -62,6 +62,32 @@ def test_stdio_config_parses():
     assert config.enabled is True
 
 
+def test_env_values_are_var_expanded(monkeypatch):
+    """Regression: url/headers ran through _expand() but env didn't, so a
+    stdio server's "env": {"HA_TOKEN": "${HA_TOKEN}"} was passed to the
+    subprocess as the literal string "${HA_TOKEN}" instead of the real
+    token. Confirmed live: mcp-calendar's calendar_events call failed with
+    "Illegal header value b'Bearer '" — an empty token, not a substitution
+    bug, because mcp_servers.json didn't declare "env" for it at all at the
+    time; MCP's stdio spawn only inherits a safe env allowlist (PATH/HOME/
+    etc, see mcp.client.stdio.get_default_environment), never arbitrary
+    parent env vars, so a server needing a secret must list it in "env"
+    explicitly, and each value must actually get expanded.
+    """
+    monkeypatch.setenv("HA_TOKEN", "secret-token-value")
+    config = MCPServerConfig.from_dict(
+        {
+            "name": "mcp-calendar",
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "mcp_calendar"],
+            "env": {"HA_URL": "http://ha.local:8123", "HA_TOKEN": "${HA_TOKEN}"},
+            "categories": ["calendar"],
+        }
+    )
+    assert config.env == {"HA_URL": "http://ha.local:8123", "HA_TOKEN": "secret-token-value"}
+
+
 def test_spec_style_keys_are_accepted():
     """The SPEC.md registry uses `type` and singular `category`."""
     config = MCPServerConfig.from_dict(

@@ -26,9 +26,14 @@
       "transport": "stdio",
       "command": "python",
       "args": ["-m", "mcp_notifications"],
+      "env": {
+        "HA_URL": "${HA_URL}",
+        "HA_TOKEN": "${HA_TOKEN}"
+      },
       "categories": ["notifications"],
       "enabled": true,
-      "timeout": 15
+      "timeout": 15,
+      "$comment": "stdio subprocesses do NOT inherit the container's full env — MCP's StdioServerParameters.env=None merges only a safe allowlist (PATH/HOME/etc, see mcp.client.stdio.get_default_environment), never arbitrary secrets. HA_URL/HA_TOKEN must be listed explicitly here or this server's HA REST calls silently run with an empty token."
     },
     {
       "name": "mcp-workflow-status",
@@ -73,10 +78,14 @@
       "transport": "stdio",
       "command": "python",
       "args": ["-m", "mcp_calendar"],
+      "env": {
+        "HA_URL": "${HA_URL}",
+        "HA_TOKEN": "${HA_TOKEN}"
+      },
       "categories": ["calendar"],
       "enabled": true,
       "timeout": 20,
-      "$comment": "CALENDAR_PROVIDER=ha (default) uses HA Google Calendar. This is the canonical calendar path — google-workspace's --tools list deliberately omits 'calendar' to avoid a second, conflicting calendar integration."
+      "$comment": "CALENDAR_PROVIDER=ha (default) uses HA Google Calendar. This is the canonical calendar path — google-workspace's --tools list deliberately omits 'calendar' to avoid a second, conflicting calendar integration. HA_URL/HA_TOKEN must be listed here explicitly — see mcp-notifications' $comment for why."
     },
     {
       "name": "google-workspace",

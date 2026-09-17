@@ -118,7 +118,7 @@ class MCPServerConfig:
             transport=transport,
             command=command,
             args=[str(a) for a in args],
-            env={str(k): str(v) for k, v in (data.get("env") or {}).items()},
+            env={str(k): _expand(str(v)) for k, v in (data.get("env") or {}).items()},
             cwd=data.get("cwd"),
             url=_expand(url),
             headers={str(k): _expand(str(v)) for k, v in (data.get("headers") or {}).items()},
