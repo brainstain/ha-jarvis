@@ -39,9 +39,17 @@ def _strip_inline_reasoning(text: str) -> str:
     block with </think>, then gives the actual answer. We cut everything up to
     and including </think> and return only the clean final answer.
 
-    If </think> is absent, the model reasoned inline without tags (budget was
-    too tight to finish). We fall back to the last non-empty line as a best
-    approximation of the intended answer.
+    If </think> is absent, the model *usually* reasoned inline without tags
+    (budget was too tight to finish) — but grammar-constrained calls (tool
+    selection, routing) can legitimately return a complete, valid JSON object
+    formatted across multiple lines with no thinking at all. Blindly taking
+    "the last line" in that case shreds valid multi-line JSON down to a
+    trailing brace — confirmed live: a calendar tool-selection call returned
+    the complete, valid two-line
+    '{"tool": "mcp-calendar__calendar_events", ...}\n}', and this fallback
+    turned it into just '}', which then failed to parse and silently dropped
+    the tool call. So: only take the last-line fallback when the text isn't
+    already a complete top-level JSON object/array.
     """
     if not text:
         return text
@@ -51,8 +59,13 @@ def _strip_inline_reasoning(text: str) -> str:
         after = text.split("</think>", 1)[1].strip()
         return after if after else text
 
-    # Fallback: no closing tag means max_tokens cut off before the answer.
-    # Take the last sentence-ending line as the closest thing to a response.
+    stripped = text.strip()
+    if stripped[:1] in "{[" and stripped[-1:] in "}]":
+        return stripped
+
+    # Fallback: no closing tag and not already complete JSON means max_tokens
+    # cut off before the answer. Take the last sentence-ending line as the
+    # closest thing to a response.
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if lines:
         return lines[-1]
