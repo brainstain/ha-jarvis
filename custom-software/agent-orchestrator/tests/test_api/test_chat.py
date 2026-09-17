@@ -173,6 +173,31 @@ async def test_chat_logs_full_request_and_response_content(ha_registry, monkeypa
     assert entry["scope"] == "family"
 
 
+async def test_synthesis_prompt_carries_the_real_date(ha_registry, monkeypatch):
+    """Regression: the tool-selection call resolves "today"/"tomorrow"
+    against the real date (see the test above), but synthesis — reading
+    that tool's raw ISO-timestamp result back — had no date of its own to
+    anchor against. Confirmed live: a calendar query whose tool call
+    correctly fetched today's events still produced "If today is, say,
+    2023, then tomorrow is not 2026..." because synthesis had nothing to
+    compare the result's timestamps to and started guessing the year.
+    """
+    from datetime import UTC, datetime
+
+    mcp, session = ha_registry
+    await mcp.discover()
+    llm = ScriptedLLM(
+        tool_call("ha-mcp__light_turn_off", {"entity_id": "light.kitchen"}),
+        {"role": "assistant", "content": "The kitchen light is off."},
+    )
+    install(SIMPLE, llm, mcp, monkeypatch)
+
+    await routes.chat(request())
+
+    synthesis_system_prompt = llm.messages_seen[1][0]["content"]
+    assert datetime.now(UTC).strftime("%Y-%m-%d") in synthesis_system_prompt
+
+
 async def test_synthesis_disables_thinking(ha_registry, monkeypatch):
     """Regression: synthesis previously left `think` unset (effectively
     think:true), which frequently made the model answer from its own

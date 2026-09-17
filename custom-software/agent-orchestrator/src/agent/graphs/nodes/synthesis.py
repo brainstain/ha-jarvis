@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, datetime
 from typing import Any, Callable
 
 import httpx
@@ -13,10 +14,26 @@ from agent.core.llm import LLMClient
 
 log = structlog.get_logger(__name__)
 
-_SYNTHESIS_SYSTEM = (
-    "You are Jarvis, a home assistant. Answer the user from the tool results provided. "
-    "Be direct and specific; never describe the tool or the mechanics of the call."
-)
+
+def _synthesis_system() -> str:
+    """Build the synthesis system prompt with the actual current date.
+
+    Mirrors agent.api.routes._synthesis_system: the tool call itself
+    resolves "today"/"tomorrow" correctly (graphs.nodes.tools's
+    _tool_selection_system carries the real date), but the result the model
+    sees back is raw ISO timestamps with no anchor — without this, synthesis
+    has to guess what year "today" is instead of just reading the result.
+    """
+    now = datetime.now(UTC)
+    return (
+        "You are Jarvis, a home assistant. Answer the user from the tool results provided. "
+        "Be direct and specific; never describe the tool or the mechanics of the call. "
+        f"The current date and time is {now.strftime('%Y-%m-%d %H:%M')} UTC "
+        f"({now.strftime('%A')}) — use this to resolve relative dates like "
+        '"today" or "tomorrow" in the tool results.'
+    )
+
+
 _VOICE_HINT = " Your answer is spoken aloud: one or two short sentences, no lists or markup."
 
 # Detects partial reasoning extracted as a "last line" by LLMClient's inline-
@@ -45,7 +62,7 @@ _PLANNING_SYSTEM = (
 
 def make_synthesizer(llm: LLMClient, speech: bool = False) -> Callable[[dict[str, Any]], Any]:
     """Return an async callable that synthesizes a final natural-language response."""
-    system = _SYNTHESIS_SYSTEM + (_VOICE_HINT if speech else "")
+    system = _synthesis_system() + (_VOICE_HINT if speech else "")
 
     async def synthesize(state: dict[str, Any]) -> dict[str, Any]:
         calls: list[dict[str, Any]] = state.get("tool_calls") or []
