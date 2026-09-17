@@ -202,6 +202,41 @@ class SessionManager:
         """Background task: expire voice sessions after SESSION_TIMEOUT_SECONDS."""
 ```
 
+Resolving the same thread_id across turns is necessary but not sufficient
+for a multi-turn conversation — something still has to read prior turns
+back into the prompt. That's `core/history.py`.
+
+### Conversation History (`core/history.py`)
+
+In-memory rolling window of recent turns per thread_id, so a follow-up
+("and the office one too") can be resolved against the prior exchange.
+Independent of SessionManager (which only decides thread_id *sharing*) and
+of the long-term semantic memory in `memory/scoping.py` (facts recalled
+across sessions, not literal recent turns).
+
+```python
+class ConversationHistory:
+    """Rolling per-thread turn window, capped and TTL'd independently of
+    SessionManager's voice/webui session TTL."""
+
+    def get_messages(self, thread_id: str) -> list[dict[str, str]]:
+        """Prior turns, oldest first. Empty if unseen or the thread's gone
+        quiet for CONVERSATION_HISTORY_TTL_SECONDS."""
+
+    def append(self, thread_id: str, role: str, content: str) -> None:
+        """Record one turn, trimming to CONVERSATION_HISTORY_MAX_TURNS."""
+```
+
+`routes.py` feeds `get_messages(thread_id)` into the `simple` and
+`multistep` graphs' initial state (`AgentState.messages`) and appends the
+user/assistant turn back in after each response. The `interactive` graph is
+the one exception: its own LangGraph SQLite checkpointer already
+accumulates `messages` across a HITL pause/resume on the same thread_id, so
+feeding `ConversationHistory` into that same reducer-merged field would
+double-count turns on every call. It still records into
+`ConversationHistory` after responding, so a later turn that routes to a
+different graph on the same thread isn't left with no context.
+
 ### Meta-Reasoning Router (`core/router.py`)
 
 Uses the fast 4B model to classify intent and plan execution strategy WITHOUT loading all tool schemas into context.
@@ -437,6 +472,10 @@ class Settings(BaseSettings):
     token_budget: int = 50_000
     session_timeout_seconds: int = 300   # voice session TTL
     max_tools_per_request: int = 7
+
+    # Conversation
+    conversation_history_max_turns: int = 8      # ~4 back-and-forths
+    conversation_history_ttl_seconds: int = 1800 # separate from session_timeout_seconds
     
     # Memory
     memory_auto_promote_family: bool = True

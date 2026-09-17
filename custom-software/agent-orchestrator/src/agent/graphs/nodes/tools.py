@@ -83,6 +83,7 @@ def make_tool_executor(
                     + render_tool_descriptions(usable)
                 ),
             },
+            *(state.get("messages") or []),
             {"role": "user", "content": state.get("message", "")},
         ]
 

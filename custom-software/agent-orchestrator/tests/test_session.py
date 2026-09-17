@@ -78,6 +78,21 @@ def test_expire_sessions_removes_stale_entries():
     assert manager.expire_sessions() == 0
 
 
+def test_mark_pending_builds_and_registers_thread_info():
+    """Regression: routes.py calls sessions.mark_pending(thread_id, user_id,
+    question) when the interactive graph pauses for clarification, but
+    SessionManager only ever defined register_pending(thread_id, ThreadInfo)
+    — every HITL pause would have raised AttributeError instead of
+    surfacing the clarifying question."""
+    manager = SessionManager()
+    manager.mark_pending("t1", "michael", "Which room?")
+
+    pending = manager.get_pending_threads("michael")
+    assert len(pending) == 1
+    assert pending[0].thread_id == "t1"
+    assert pending[0].question == "Which room?"
+
+
 def test_pending_threads_filtered_by_user():
     manager = SessionManager()
     now = datetime.now(UTC)

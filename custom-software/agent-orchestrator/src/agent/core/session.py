@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from agent.api.schemas import ChatRequest, ThreadInfo
 
@@ -76,6 +77,18 @@ class SessionManager:
     def register_pending(self, thread_id: str, info: ThreadInfo) -> None:
         """Record a thread that interrupted for human input."""
         self._pending[thread_id] = info
+
+    def mark_pending(self, thread_id: str, user_id: str, question: str) -> None:
+        """Convenience wrapper: build the ThreadInfo and register it."""
+        self.register_pending(
+            thread_id,
+            ThreadInfo(
+                thread_id=thread_id,
+                user_id=user_id,
+                question=question,
+                created_at=datetime.now(UTC),
+            ),
+        )
 
     def clear_pending(self, thread_id: str) -> None:
         self._pending.pop(thread_id, None)

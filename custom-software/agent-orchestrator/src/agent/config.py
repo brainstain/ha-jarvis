@@ -59,6 +59,18 @@ class Settings(BaseSettings):
     loop_detection_window: int = 5
     loop_detection_repeats: int = 3
 
+    # ── Conversation ─────────────────────────────────────────
+    # Rolling window of recent turns handed back into the LLM prompt on the
+    # same thread_id (see core/history.py) — what actually makes "and the
+    # office one too" resolvable against the prior turn. max_turns counts
+    # messages (user+assistant), not exchanges, so 8 is ~4 back-and-forths.
+    # The TTL is longer than session_timeout_seconds on purpose: that TTL
+    # only governs how long an *anonymous* voice/webui request keeps
+    # resolving to the same thread_id, not how long a conversation someone
+    # is actively having (possibly via an explicit thread_id) stays live.
+    conversation_history_max_turns: int = 8
+    conversation_history_ttl_seconds: int = 1800
+
     # ── MCP ──────────────────────────────────────────────────
     # Relative to the working directory (/app in the container).
     mcp_config_path: str = "config/mcp_servers.json"

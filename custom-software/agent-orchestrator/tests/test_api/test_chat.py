@@ -66,6 +66,13 @@ def clean_tools():
     routes.set_tools(None)
 
 
+@pytest.fixture(autouse=True)
+def clean_history():
+    yield
+    routes.history._threads.clear()
+    routes.history._last_seen.clear()
+
+
 def install(decision, llm, mcp=None, monkeypatch=None):
     async def route(message, context):
         return decision
@@ -268,6 +275,57 @@ async def test_voice_requests_get_the_speech_prompt(ha_registry, monkeypatch):
     response = await routes.chat(request(source="voice", satellite_id="kitchen"))
 
     assert response.output_channel == "voice"
+
+
+async def test_second_turn_on_same_thread_sees_prior_exchange(ha_registry, monkeypatch):
+    """The core multi-turn gap: thread_id resolution alone doesn't give a
+    graph any memory of what was said earlier on that thread. A follow-up
+    like "and the office one too" must see the previous turn's Q&A in the
+    prompt, not just its own message in isolation.
+    """
+    mcp, _session = ha_registry
+    await mcp.discover()
+    llm = ScriptedLLM(
+        tool_call("ha-mcp__light_turn_off", {"entity_id": "light.kitchen"}),
+        {"role": "assistant", "content": "The kitchen light is off."},
+        tool_call("ha-mcp__light_turn_off", {"entity_id": "light.office"}),
+        {"role": "assistant", "content": "The office light is off too."},
+    )
+    install(SIMPLE, llm, mcp, monkeypatch)
+
+    first = await routes.chat(request(thread_id="t1"))
+    assert first.message == "The kitchen light is off."
+
+    second = await routes.chat(request(thread_id="t1", message="and the office one too"))
+    assert second.message == "The office light is off too."
+
+    # Second turn's tool-selection and synthesis calls both carried the
+    # first turn's user message and final answer as prior context.
+    second_tool_selection = llm.messages_seen[2]
+    second_synthesis = llm.messages_seen[3]
+    for messages in (second_tool_selection, second_synthesis):
+        contents = [m["content"] for m in messages]
+        assert any("turn off the kitchen light" in c for c in contents)
+        assert any("The kitchen light is off." in c for c in contents)
+
+
+async def test_unrelated_threads_do_not_leak_history(ha_registry, monkeypatch):
+    mcp, _session = ha_registry
+    await mcp.discover()
+    llm = ScriptedLLM(
+        tool_call("ha-mcp__light_turn_off", {"entity_id": "light.kitchen"}),
+        {"role": "assistant", "content": "The kitchen light is off."},
+        tool_call("ha-mcp__light_turn_off", {"entity_id": "light.office"}),
+        {"role": "assistant", "content": "The office light is off."},
+    )
+    install(SIMPLE, llm, mcp, monkeypatch)
+
+    await routes.chat(request(thread_id="t1"))
+    await routes.chat(request(thread_id="t2", message="turn off the office light"))
+
+    second_tool_selection = llm.messages_seen[2]
+    contents = [m["content"] for m in second_tool_selection]
+    assert not any("kitchen" in c for c in contents)
 
 
 async def test_unknown_graph_returns_501(monkeypatch):
