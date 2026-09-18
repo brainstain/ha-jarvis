@@ -8,6 +8,7 @@ spawning subprocesses or needing Home Assistant on the network.
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -130,7 +131,6 @@ def test_shipped_config_is_valid():
         "mcp-memory-scoped",
         "mcp-notifications",
         "mcp-workflow-status",
-        "mcp-calendar",
         "google-workspace",
     ]
     assert enabled[0].transport == "sse"
@@ -426,6 +426,39 @@ async def test_uncategorized_server_still_registers():
     assert [t.category for t in registry.tools] == ["other"]
 
 
+async def test_google_workspace_calendar_tools_get_overridden_category():
+    """google-workspace bundles Gmail/Drive/Docs/Calendar under one
+    "google" category, which isn't in router.TOOL_CATEGORIES and so is
+    never reachable. Calendar-specific tool names must land in the
+    router-reachable "calendar" category instead; everything else stays
+    under the server's own "google" category.
+    """
+    configs = [
+        MCPServerConfig(
+            name="google-workspace",
+            transport="stdio",
+            command="workspace-mcp",
+            categories=["google"],
+        )
+    ]
+    mcp = build_registry(
+        configs,
+        {
+            "google-workspace": FakeSession(
+                tools=[FakeTool("get_events"), FakeTool("send_gmail_message")]
+            )
+        },
+    )
+    registry = await mcp.discover()
+
+    assert [t.name for t in registry.by_category("calendar")] == [
+        qualified_name("google-workspace", "get_events")
+    ]
+    assert [t.name for t in registry.by_category("google")] == [
+        qualified_name("google-workspace", "send_gmail_message")
+    ]
+
+
 async def test_multi_category_tool_is_selected_once():
     """Registered under two categories, but the max-7 filter must not double it."""
     from agent.mcp.tool_filter import ToolFilter
@@ -656,3 +689,89 @@ def test_inject_identity_args_skips_tools_without_user_id_param():
     tools = _memory_tools()
     args = inject_identity_args(tools[1], {"memory_id": "abc"}, "michael")
     assert "user_id" not in args
+
+
+def test_inject_identity_args_fills_user_google_email_when_configured():
+    from agent.mcp.tool_filter import ToolSchema
+
+    tool = ToolSchema(
+        name="get_events",
+        server="google-workspace",
+        category="calendar",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "user_google_email": {"type": "string"},
+                "query": {"type": "string"},
+            },
+            "required": ["user_google_email"],
+        },
+    )
+    args = inject_identity_args(
+        tool, {"query": "x", "user_google_email": "hallucinated@example.com"}, "michael", "me@gmail.com"
+    )
+    assert args["user_google_email"] == "me@gmail.com"
+
+
+def test_inject_identity_args_leaves_user_google_email_unset_when_not_configured():
+    from agent.mcp.tool_filter import ToolSchema
+
+    tool = ToolSchema(
+        name="get_events",
+        server="google-workspace",
+        category="calendar",
+        input_schema={
+            "type": "object",
+            "properties": {"user_google_email": {"type": "string"}},
+        },
+    )
+    args = inject_identity_args(tool, {}, "michael")
+    assert "user_google_email" not in args
+
+
+def _calendar_tool() -> Any:
+    from agent.mcp.tool_filter import ToolSchema
+
+    return ToolSchema(
+        name="get_events",
+        server="google-workspace",
+        category="calendar",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "calendar_id": {"type": "string"},
+                "query": {"type": "string"},
+            },
+        },
+    )
+
+
+def test_inject_identity_args_always_overrides_calendar_id_when_configured():
+    """Regression: the model could never reliably resolve "Family" to its
+    real Google Calendar ID — it either queried "primary" (finds nothing)
+    or hallucinated the literal string "family" as calendar_id (404s). The
+    real ID is now injected server-side for every calendar-tool call, so
+    the user never has to say "family calendar" explicitly.
+    """
+    args = inject_identity_args(
+        _calendar_tool(),
+        {"query": "x", "calendar_id": "primary"},
+        "michael",
+        family_calendar_id="family123@group.calendar.google.com",
+    )
+    assert args["calendar_id"] == "family123@group.calendar.google.com"
+
+
+def test_inject_identity_args_leaves_calendar_id_unset_when_not_configured():
+    args = inject_identity_args(_calendar_tool(), {"query": "x"}, "michael")
+    assert "calendar_id" not in args
+
+
+def test_render_tool_descriptions_hides_calendar_id_from_the_model():
+    """calendar_id is never trustworthy from model output (see
+    inject_identity_args) — same as user_id/user_google_email, it should
+    never even be offered to the model as a parameter to fill in.
+    """
+    description = render_tool_descriptions([_calendar_tool()])
+    assert "calendar_id" not in description
+    assert "query" in description

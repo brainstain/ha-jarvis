@@ -33,6 +33,25 @@ QUALIFIER = "__"
 # their tools would be invisible to the filter.
 DEFAULT_CATEGORY = "other"
 
+# categories in mcp_servers.json apply to a whole server, but some servers
+# bundle unrelated domains — google-workspace exposes Gmail/Drive/Docs
+# alongside Calendar under one "google" category, which isn't even in
+# router.TOOL_CATEGORIES, so none of it is reachable by category-based
+# selection. This overrides specific tool names to a narrower, reachable
+# category instead of the server-wide default; anything not listed here
+# keeps falling back to the server's own "categories".
+_TOOL_CATEGORY_OVERRIDES: dict[str, dict[str, list[str]]] = {
+    "google-workspace": {
+        "list_calendars": ["calendar"],
+        "get_events": ["calendar"],
+        "manage_event": ["calendar"],
+        "manage_out_of_office": ["calendar"],
+        "manage_focus_time": ["calendar"],
+        "query_freebusy": ["calendar"],
+        "create_calendar": ["calendar"],
+    },
+}
+
 
 def qualified_name(server: str, tool: str) -> str:
     """Globally unique tool name — two servers may both expose ``search``."""
@@ -72,7 +91,16 @@ def render_openai_tools(tools: list[ToolSchema]) -> list[dict[str, Any]]:
 # them from the model also removes the single biggest source of
 # tool-selection failures under testing: the model endlessly reasoning about
 # a value ("user_id") it has no way to know.
-_INJECTED_PARAMS = {"user_id"}
+#
+# calendar_id joined this list 2026-09-18: this is a single-user home system
+# with one calendar that matters (the shared "Family" one), and the model
+# could never resolve it to the real ID on its own — it either queried
+# "primary" (finds nothing, since the events live on Family) or hallucinated
+# the literal string "family" as calendar_id (404s). Hiding it and always
+# injecting the real ID server-side makes every calendar query hit the
+# right calendar regardless of phrasing, instead of relying on the model to
+# infer from wording that a query is "about" the family calendar.
+_INJECTED_PARAMS = {"user_id", "user_google_email", "calendar_id"}
 
 
 def render_tool_selection_schema(tools: list[ToolSchema]) -> dict[str, Any]:
@@ -155,7 +183,11 @@ def parse_tool_selection(
 
 
 def inject_identity_args(
-    tool: ToolSchema, args: dict[str, Any], user_id: str
+    tool: ToolSchema,
+    args: dict[str, Any],
+    user_id: str,
+    google_email: str = "",
+    family_calendar_id: str = "",
 ) -> dict[str, Any]:
     """Fill in identity parameters the model was never shown, always
     overriding any value the model tried to supply anyway (it's never
@@ -163,6 +195,10 @@ def inject_identity_args(
     props = tool.input_schema.get("properties") or {}
     if "user_id" in props:
         args["user_id"] = user_id
+    if "user_google_email" in props and google_email:
+        args["user_google_email"] = google_email
+    if "calendar_id" in props and family_calendar_id:
+        args["calendar_id"] = family_calendar_id
     return args
 
 
@@ -221,8 +257,9 @@ class MCPToolRegistry:
                 log.warning("mcp_server_uncategorized", server=config.name)
                 categories = [DEFAULT_CATEGORY]
 
+            overrides = _TOOL_CATEGORY_OVERRIDES.get(config.name, {})
             for tool in tools:
-                self._register(config.name, tool, categories)
+                self._register(config.name, tool, overrides.get(tool["name"], categories))
 
             log.info(
                 "mcp_server_discovered",

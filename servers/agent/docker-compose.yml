@@ -129,6 +129,10 @@ services:
     profiles: [phase2]
     ports:
       - "8100:8100"
+      # workspace-mcp's local OAuth callback listener (google-workspace stdio
+      # subprocess) — needed once to complete interactive consent via an SSH
+      # tunnel to this port; see docs/GOOGLE_WORKSPACE_MCP.md.
+      - "8000:8000"
     volumes:
       - langgraph_data:/data/langgraph
       - google_credentials:/app/.credentials
@@ -156,6 +160,15 @@ services:
       # Empty until set in .env; the server just fails discovery until then (see mcp_servers.json).
       GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
       GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      # This is a single-user home system — the agent-orchestrator process
+      # (not the MCP subprocess) uses this to inject user_google_email into
+      # google-workspace tool calls server-side (see inject_identity_args in
+      # mcp/registry.py); the model has no way to know the account otherwise.
+      GOOGLE_WORKSPACE_USER_EMAIL: ${GOOGLE_WORKSPACE_USER_EMAIL:-}
+      # Real Google Calendar ID for the shared "Family" calendar — the model
+      # can't reliably resolve the display name to this on its own, see
+      # config.py's Settings.google_calendar_family_id docstring.
+      GOOGLE_CALENDAR_FAMILY_ID: ${GOOGLE_CALENDAR_FAMILY_ID:-}
     networks:
       - agent
     extra_hosts:

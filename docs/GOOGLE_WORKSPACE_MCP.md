@@ -69,11 +69,25 @@ relative to the process cwd or `$HOME`).
 
 ## 4. Tool scope
 
-`mcp_servers.json` passes `--tool-tier core --tools gmail drive docs` to
-scope it down from the package's full ~120 tools. Cross-check `gmail`/`drive`/
-`docs` are the right `--tools` slugs for your installed version
-(`workspace-mcp --help`) — the README only confirmed `gmail`, `drive`, and
-`calendar` as example values.
+`mcp_servers.json` passes `--tool-tier core --tools gmail drive docs calendar`
+to scope it down from the package's full ~120 tools. Cross-check `gmail`/
+`drive`/`docs`/`calendar` are the right `--tools` slugs for your installed
+version (`workspace-mcp --help`) — the README only confirmed those four as
+example values.
+
+`calendar` was added 2026-09-17 to trial as the canonical calendar path in
+place of `mcp-calendar` (the HA-backed server, now `enabled: false`) — its
+`get_events` tool supports keyword search (`query=`) and an open-ended
+forward time range (omit `time_max`), unlike `mcp-calendar`'s HA-proxied
+tool, which requires an explicit `start`/`end` window and has no search.
+Because `google-workspace`'s server-wide `categories` is `["google"]`, which
+isn't in `router.TOOL_CATEGORIES` and so is unreachable, the calendar tools
+(`list_calendars`, `get_events`, `manage_event`, `manage_out_of_office`,
+`manage_focus_time`, `query_freebusy`, `create_calendar`) get a per-tool
+category override to `"calendar"` in `registry.py`'s
+`_TOOL_CATEGORY_OVERRIDES` — see that module for why. Gmail/Drive/Docs tools
+remain under `"google"`, which today is still unreachable by the router (a
+pre-existing gap from PR #14, not fixed here).
 
 Also note `tool_routing.max_tools_per_request` in `mcp_servers.json` is
 capped at 7, and only `memory`/`notifications` are in

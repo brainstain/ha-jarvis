@@ -8,6 +8,7 @@ from typing import Any, Callable
 import httpx
 import structlog
 
+from agent.config import get_settings
 from agent.core.llm import LLMClient
 from agent.core.safety import SafetyGuard
 from agent.mcp.registry import (
@@ -31,6 +32,20 @@ def _tool_selection_system() -> str:
     like "today" — confirmed live: every "what's on my calendar today"
     query queried 2025-01-20 instead of the real date, silently returning
     whatever (if anything) happened to be on that literal day.
+
+    The time_max line fixes the same class of bug for google-workspace's
+    get_events: its docstring says time_max may be omitted for an
+    open-ended forward search, but confirmed live, the model filled in a
+    narrow ~24h time_max anyway for "next event" style queries, missing
+    events further out (e.g. "next WORN event" days away).
+
+    calendar_id is no longer surfaced to the model at all (see
+    registry._INJECTED_PARAMS / inject_identity_args) — it was never
+    reliable at resolving "Family" to its real Google Calendar ID, either
+    querying "primary" (finds nothing) or hallucinating the literal string
+    "family" as calendar_id (404s). The real ID is now always injected
+    server-side after selection, for every calendar query regardless of
+    phrasing, so the model is never asked to get this right.
     """
     now = datetime.now(UTC)
     return (
@@ -38,7 +53,9 @@ def _tool_selection_system() -> str:
         'or "none" if no tool fits. '
         f"The current date and time is {now.strftime('%Y-%m-%d %H:%M')} UTC "
         f"({now.strftime('%A')}) — use this, not any example date in a tool's "
-        "description, to compute relative dates like \"today\" or \"tomorrow\"."
+        "description, to compute relative dates like \"today\" or \"tomorrow\". "
+        "For \"next\"/\"upcoming\"/\"when is\" event queries with no explicit "
+        "end date, omit time_max entirely rather than guessing a narrow window."
     )
 
 
@@ -100,7 +117,14 @@ def make_tool_executor(
         if name is None:
             return {}
         tool = next(t for t in usable if t.name == name)
-        args = inject_identity_args(tool, args, state.get("user_id", ""))
+        settings = get_settings()
+        args = inject_identity_args(
+            tool,
+            args,
+            state.get("user_id", ""),
+            settings.google_workspace_user_email,
+            settings.google_calendar_family_id,
+        )
 
         if guard.check_circuit_breaker(name):
             return {
