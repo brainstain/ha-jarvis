@@ -8,6 +8,7 @@ _run_simple synthesizer, called the LLM with default thinking enabled and
 had no check for truncated/reasoning-shaped output before returning it.
 """
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -44,6 +45,58 @@ async def test_disables_thinking_and_uses_synthesis_budget():
 
     assert llm.calls[0]["extra_body"] == {"think": False}
     assert llm.calls[0]["max_tokens"] == 300
+
+
+@pytest.mark.asyncio
+async def test_synthesis_system_prompt_carries_the_real_date():
+    """Regression: the tool call resolves "today"/"tomorrow" against the
+    real date (graphs.nodes.tools._tool_selection_system), but this
+    synthesizer's system prompt had no date of its own — synthesis, reading
+    only the tool's raw ISO timestamps back, had nothing to anchor "today"
+    to and started guessing the year instead of just reading the result.
+    """
+    llm = FakeLLM("Tomorrow you have Becky's birthday.")
+    synthesize = make_synthesizer(llm)
+
+    await synthesize(_state())
+
+    system_prompt = llm.calls[0]["messages"][0]["content"]
+    assert datetime.now(UTC).strftime("%Y-%m-%d") in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_synthesis_prompt_omits_uid_from_tool_result():
+    """Regression: calendar events carry a `uid` field with no use in a
+    spoken/text answer, but its presence in the raw tool-result JSON has
+    twice, live, provoked the model into deliberating out loud about
+    whether to mention it instead of just answering, truncating before it
+    ever got there. The synthesis prompt must not show the model a uid.
+    """
+    state = {
+        "message": "what's on the calendar tomorrow",
+        "tool_calls": [
+            {
+                "tool": "mcp-calendar__list_events",
+                "result": [
+                    {
+                        "uid": "abc123@google.com",
+                        "summary": "Becky's birthday",
+                        "start": "2026-09-18T07:00:00",
+                        "end": "2026-09-18T08:00:00",
+                    }
+                ],
+            }
+        ],
+    }
+    llm = FakeLLM("Tomorrow you have Becky's birthday.")
+    synthesize = make_synthesizer(llm)
+
+    await synthesize(state)
+
+    tool_result_message = llm.calls[0]["messages"][-1]["content"]
+    assert "uid" not in tool_result_message
+    assert "abc123@google.com" not in tool_result_message
+    assert "Becky's birthday" in tool_result_message
 
 
 @pytest.mark.asyncio

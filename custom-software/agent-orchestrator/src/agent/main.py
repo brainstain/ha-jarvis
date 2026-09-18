@@ -14,7 +14,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from agent import __version__
 from agent.api.openai_compat import router as openai_router
-from agent.api.routes import SYNTHESIS_SYSTEM, router as api_router
+from agent.api.routes import _synthesis_system, router as api_router
 from agent.api.routes import set_tools
 from agent.api.websocket import ws_router
 from agent.config import get_settings
@@ -124,7 +124,7 @@ async def _warmup_models(settings, log) -> None:
                 json={
                     "model": settings.fast_model,
                     "messages": [
-                        {"role": "system", "content": SYNTHESIS_SYSTEM},
+                        {"role": "system", "content": _synthesis_system()},
                         {"role": "user", "content": "hi"},
                     ],
                     "max_tokens": settings.synthesis_max_tokens,
