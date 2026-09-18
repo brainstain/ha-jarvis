@@ -3,7 +3,7 @@
 # ============================================================
 #
 # Model tiers:
-#   assistant   → qwen3.8:27b (remote RTX 3090, all routing/synthesis/reasoning)
+#   assistant   → qwen3.8:27b-q4_K_M (remote RTX 3090, all routing/synthesis/reasoning)
 #
 # The agent node's GTX 1080 Ti previously ran two additional local tiers
 # (qwen3:4b "assistant-fast", qwen3:8b "assistant-local" as a manual
@@ -32,7 +32,7 @@ model_list:
   # selection, and synthesis for the whole agent, not just complex/research.
   - model_name: "assistant"
     litellm_params:
-      model: "ollama_chat/qwen3.8:27b"
+      model: "ollama_chat/qwen3.8:27b-q4_K_M"
       api_base: "http://inference.home.local:11434"
       timeout: 120
       extra_body:
