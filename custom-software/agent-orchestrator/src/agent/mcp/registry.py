@@ -91,7 +91,7 @@ def render_openai_tools(tools: list[ToolSchema]) -> list[dict[str, Any]]:
 # them from the model also removes the single biggest source of
 # tool-selection failures under testing: the model endlessly reasoning about
 # a value ("user_id") it has no way to know.
-_INJECTED_PARAMS = {"user_id"}
+_INJECTED_PARAMS = {"user_id", "user_google_email"}
 
 
 def render_tool_selection_schema(tools: list[ToolSchema]) -> dict[str, Any]:
@@ -174,7 +174,7 @@ def parse_tool_selection(
 
 
 def inject_identity_args(
-    tool: ToolSchema, args: dict[str, Any], user_id: str
+    tool: ToolSchema, args: dict[str, Any], user_id: str, google_email: str = ""
 ) -> dict[str, Any]:
     """Fill in identity parameters the model was never shown, always
     overriding any value the model tried to supply anyway (it's never
@@ -182,6 +182,8 @@ def inject_identity_args(
     props = tool.input_schema.get("properties") or {}
     if "user_id" in props:
         args["user_id"] = user_id
+    if "user_google_email" in props and google_email:
+        args["user_google_email"] = google_email
     return args
 
 

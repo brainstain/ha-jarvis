@@ -361,7 +361,9 @@ async def _run_simple(
         if name is None:
             return {}
         tool = next(t for t in tools if t.name == name)
-        args = inject_identity_args(tool, args, request.user_id)
+        args = inject_identity_args(
+            tool, args, request.user_id, settings.google_workspace_user_email
+        )
 
         # Re-check: the breaker may have tripped between selection and now.
         if guard.check_circuit_breaker(name):

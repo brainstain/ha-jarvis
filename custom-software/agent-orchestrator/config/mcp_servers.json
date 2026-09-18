@@ -92,10 +92,15 @@
       "transport": "stdio",
       "command": "workspace-mcp",
       "args": ["--tool-tier", "core", "--tools", "gmail", "drive", "docs", "calendar"],
+      "env": {
+        "GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_OAUTH_CLIENT_ID}",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_OAUTH_CLIENT_SECRET}",
+        "WORKSPACE_MCP_CREDENTIALS_DIR": "/app/.credentials"
+      },
       "categories": ["google"],
       "enabled": true,
       "timeout": 30,
-      "$comment": "Gmail/Docs/Drive/Calendar via taylorwilsdon/workspace-mcp (PyPI: workspace-mcp). Needs GOOGLE_OAUTH_CLIENT_ID/GOOGLE_OAUTH_CLIENT_SECRET in the container env (set in docker-compose.yml from .env) plus a one-time interactive OAuth consent — see docs/GOOGLE_WORKSPACE_MCP.md. Safe to leave enabled without credentials: discover() catches the failure per-server (registry.py) and the rest of the orchestrator boots normally; it just won't have tools until credentials + consent are done, and self-heals on the next request once they are, no restart needed. 'calendar' added 2026-09-17 to trial as the canonical calendar path in place of mcp-calendar (now disabled above) — its get_events tool supports keyword search and an open-ended forward time range that mcp-calendar's HA-proxied start/end window doesn't."
+      "$comment": "Gmail/Docs/Drive/Calendar via taylorwilsdon/workspace-mcp (PyPI: workspace-mcp). stdio subprocesses do NOT inherit the container's full env (see mcp-notifications' $comment above) — GOOGLE_OAUTH_CLIENT_ID/SECRET must be listed here explicitly or workspace-mcp falls back to looking for a client_secret.json file and every tool call fails with 'OAuth client credentials not found', even though the container's own env has them. Set in docker-compose.yml from .env, plus a one-time interactive OAuth consent — see docs/GOOGLE_WORKSPACE_MCP.md. Safe to leave enabled without credentials: discover() catches the failure per-server (registry.py) and the rest of the orchestrator boots normally; it just won't have tools until credentials + consent are done, and self-heals on the next request once they are, no restart needed. 'calendar' added 2026-09-17 to trial as the canonical calendar path in place of mcp-calendar (now disabled above) — its get_events tool supports keyword search and an open-ended forward time range that mcp-calendar's HA-proxied start/end window doesn't."
     },
     {
       "name": "mcp-shopping-list",

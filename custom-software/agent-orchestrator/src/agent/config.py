@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     # ── MCP ──────────────────────────────────────────────────
     # Relative to the working directory (/app in the container).
     mcp_config_path: str = "config/mcp_servers.json"
+    # google-workspace's tools take a required user_google_email argument the
+    # model has no way to know — this is a single-user home system, so it's
+    # injected server-side the same way user_id is, from this fixed value.
+    google_workspace_user_email: str = ""
 
     # ── Memory ───────────────────────────────────────────────
     memory_auto_promote_family: bool = True

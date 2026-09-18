@@ -20,3 +20,14 @@ def test_still_carries_the_tool_selection_instruction():
     prompt = _tool_selection_system()
     assert "none" in prompt
     assert "single tool" in prompt
+
+
+def test_instructs_omitting_time_max_for_next_event_queries():
+    """Regression: confirmed live, the model filled in a narrow ~24h
+    time_max for "next event" queries against google-workspace's
+    get_events even though its docstring allows omitting it for an
+    open-ended forward search — missing events further out.
+    """
+    prompt = _tool_selection_system()
+    assert "time_max" in prompt
+    assert "omit" in prompt.lower()

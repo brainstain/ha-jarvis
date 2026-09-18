@@ -688,3 +688,41 @@ def test_inject_identity_args_skips_tools_without_user_id_param():
     tools = _memory_tools()
     args = inject_identity_args(tools[1], {"memory_id": "abc"}, "michael")
     assert "user_id" not in args
+
+
+def test_inject_identity_args_fills_user_google_email_when_configured():
+    from agent.mcp.tool_filter import ToolSchema
+
+    tool = ToolSchema(
+        name="get_events",
+        server="google-workspace",
+        category="calendar",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "user_google_email": {"type": "string"},
+                "query": {"type": "string"},
+            },
+            "required": ["user_google_email"],
+        },
+    )
+    args = inject_identity_args(
+        tool, {"query": "x", "user_google_email": "hallucinated@example.com"}, "michael", "me@gmail.com"
+    )
+    assert args["user_google_email"] == "me@gmail.com"
+
+
+def test_inject_identity_args_leaves_user_google_email_unset_when_not_configured():
+    from agent.mcp.tool_filter import ToolSchema
+
+    tool = ToolSchema(
+        name="get_events",
+        server="google-workspace",
+        category="calendar",
+        input_schema={
+            "type": "object",
+            "properties": {"user_google_email": {"type": "string"}},
+        },
+    )
+    args = inject_identity_args(tool, {}, "michael")
+    assert "user_google_email" not in args
