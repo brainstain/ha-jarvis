@@ -32,7 +32,32 @@ _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 # end with a clear final answer. We detect this by looking for a short sentence
 # after a block of reasoning (lines starting with reasoning keywords).
 
-def _strip_inline_reasoning(text: str) -> str:
+# Phrases that are almost certainly mid-reasoning, not valid answers. Used by
+# looks_like_reasoning_fragment to catch a last-line fallback that landed on
+# leaked reasoning.
+_REASONING_FRAGMENT = re.compile(
+    r"^(But (wait|note|remember)|Wait[,.]|Hmm[,.]|Let me (think|check|re|reconsider)|"
+    r"I need to|We need to|Actually,|Hold on)",
+    re.IGNORECASE,
+)
+
+
+def looks_like_reasoning_fragment(text: str) -> bool:
+    """True if ``text`` looks like truncated inline reasoning, not an answer.
+
+    The last-line fallback in _strip_inline_reasoning yields a single line, so
+    a fragment is either a reasoning-keyword opener or a single line with no
+    sentence-ending punctuation (a reply cut off mid-thought, e.g. "...and
+    Bear ("). Multi-line text is a real formatted answer (a list, a haiku, a
+    table) and is never a fragment — its last line legitimately may not end
+    in punctuation.
+    """
+    if _REASONING_FRAGMENT.match(text):
+        return True
+    return "\n" not in text and text[-1:] not in (".", "!", "?")
+
+
+def _strip_inline_reasoning(text: str, truncated: bool = True) -> str:
     """Extract the answer from qwen3's combined reasoning+answer output.
 
     qwen3 with think:false outputs reasoning as plain text and ends the thinking
@@ -50,6 +75,12 @@ def _strip_inline_reasoning(text: str) -> str:
     turned it into just '}', which then failed to parse and silently dropped
     the tool call. So: only take the last-line fallback when the text isn't
     already a complete top-level JSON object/array.
+
+    ``truncated`` says whether generation was cut off (finish_reason other than
+    "stop"). Models that don't leak reasoning (e.g. qwen3.8 with think:false)
+    return a clean multi-line answer with no </think> at all; taking the last
+    line of that shreds lists, haiku and tables. Only a truncated reply gets
+    the last-line fallback; a cleanly finished one is returned whole.
     """
     if not text:
         return text
@@ -63,9 +94,11 @@ def _strip_inline_reasoning(text: str) -> str:
     if stripped[:1] in "{[" and stripped[-1:] in "}]":
         return stripped
 
-    # Fallback: no closing tag and not already complete JSON means max_tokens
-    # cut off before the answer. Take the last sentence-ending line as the
-    # closest thing to a response.
+    if not truncated:
+        return stripped
+
+    # Fallback: no closing tag, not complete JSON, and generation was cut off
+    # before the answer. Take the last line as the closest thing to a response.
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if lines:
         return lines[-1]
@@ -183,6 +216,8 @@ class LLMClient:
             )
         if raw_content:
             content = _THINK_RE.sub("", raw_content).strip()
-            content = _strip_inline_reasoning(content)
+            content = _strip_inline_reasoning(
+                content, truncated=choices[0].get("finish_reason") != "stop"
+            )
             msg = {**msg, "content": content}
         return msg

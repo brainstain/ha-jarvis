@@ -1,6 +1,10 @@
 """LLMClient response-cleanup: _strip_inline_reasoning, trim_for_synthesis."""
 
-from agent.core.llm import _strip_inline_reasoning, trim_for_synthesis
+from agent.core.llm import (
+    _strip_inline_reasoning,
+    looks_like_reasoning_fragment,
+    trim_for_synthesis,
+)
 
 
 def test_strips_closed_think_block():
@@ -83,3 +87,35 @@ def test_trim_for_synthesis_passes_through_non_dict_values():
     assert trim_for_synthesis("light.kitchen is off") == "light.kitchen is off"
     assert trim_for_synthesis(None) is None
     assert trim_for_synthesis(42) == 42
+
+
+def test_cleanly_finished_multiline_answer_is_returned_whole():
+    """Regression: qwen3.8 with think:false returns a clean formatted answer
+    with no </think>. The last-line fallback shredded lists and haiku down
+    to one line; a reply that finished (finish_reason "stop") is a real
+    answer and must come back whole."""
+    text = "Here are three tips:\n\n*   Avoid screens.\n*   Keep it cool.\n*   Stay consistent"
+    assert _strip_inline_reasoning(text, truncated=False) == text
+
+
+def test_truncated_untagged_text_still_falls_back_to_last_line():
+    text = "First I should consider the weather.\nThe answer is: sunny"
+    assert _strip_inline_reasoning(text, truncated=True) == "The answer is: sunny"
+
+
+def test_fragment_guard_accepts_multiline_list_without_final_punctuation():
+    text = "Today:\n*   **Becky's birthday**\n*   Soccer practice (10:00 AM)"
+    assert not looks_like_reasoning_fragment(text)
+
+
+def test_fragment_guard_rejects_single_line_cut_off_mid_thought():
+    assert looks_like_reasoning_fragment("Today includes Becky's birthday and Bear (")
+
+
+def test_fragment_guard_rejects_reasoning_opener_even_with_punctuation():
+    assert looks_like_reasoning_fragment("But wait, the user might not need the UIDs.")
+    assert looks_like_reasoning_fragment("Let me check the calendar.\nBut wait, hmm")
+
+
+def test_fragment_guard_accepts_normal_sentence():
+    assert not looks_like_reasoning_fragment("You have two events tomorrow.")
