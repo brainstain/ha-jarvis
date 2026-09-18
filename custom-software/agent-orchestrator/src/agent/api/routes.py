@@ -362,7 +362,11 @@ async def _run_simple(
             return {}
         tool = next(t for t in tools if t.name == name)
         args = inject_identity_args(
-            tool, args, request.user_id, settings.google_workspace_user_email
+            tool,
+            args,
+            request.user_id,
+            settings.google_workspace_user_email,
+            settings.google_calendar_family_id,
         )
 
         # Re-check: the breaker may have tripped between selection and now.

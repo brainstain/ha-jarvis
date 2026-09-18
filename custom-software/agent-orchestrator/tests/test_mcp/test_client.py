@@ -8,6 +8,7 @@ spawning subprocesses or needing Home Assistant on the network.
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -726,3 +727,51 @@ def test_inject_identity_args_leaves_user_google_email_unset_when_not_configured
     )
     args = inject_identity_args(tool, {}, "michael")
     assert "user_google_email" not in args
+
+
+def _calendar_tool() -> Any:
+    from agent.mcp.tool_filter import ToolSchema
+
+    return ToolSchema(
+        name="get_events",
+        server="google-workspace",
+        category="calendar",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "calendarId": {"type": "string"},
+                "query": {"type": "string"},
+            },
+        },
+    )
+
+
+def test_inject_identity_args_always_overrides_calendar_id_when_configured():
+    """Regression: the model could never reliably resolve "Family" to its
+    real Google Calendar ID — it either queried "primary" (finds nothing)
+    or hallucinated the literal string "family" as calendarId (404s). The
+    real ID is now injected server-side for every calendar-tool call, so
+    the user never has to say "family calendar" explicitly.
+    """
+    args = inject_identity_args(
+        _calendar_tool(),
+        {"query": "x", "calendarId": "primary"},
+        "michael",
+        family_calendar_id="family123@group.calendar.google.com",
+    )
+    assert args["calendarId"] == "family123@group.calendar.google.com"
+
+
+def test_inject_identity_args_leaves_calendar_id_unset_when_not_configured():
+    args = inject_identity_args(_calendar_tool(), {"query": "x"}, "michael")
+    assert "calendarId" not in args
+
+
+def test_render_tool_descriptions_hides_calendar_id_from_the_model():
+    """calendarId is never trustworthy from model output (see
+    inject_identity_args) — same as user_id/user_google_email, it should
+    never even be offered to the model as a parameter to fill in.
+    """
+    description = render_tool_descriptions([_calendar_tool()])
+    assert "calendarId" not in description
+    assert "query" in description
