@@ -119,3 +119,10 @@ def test_fragment_guard_rejects_reasoning_opener_even_with_punctuation():
 
 def test_fragment_guard_accepts_normal_sentence():
     assert not looks_like_reasoning_fragment("You have two events tomorrow.")
+
+
+def test_fragment_guard_accepts_sentence_ending_in_closing_quote_or_paren():
+    assert not looks_like_reasoning_fragment('You have "Becky\'s birthday" and "Soccer."')
+    assert not looks_like_reasoning_fragment("Soccer is at 10 (Field 1.)")
+    assert not looks_like_reasoning_fragment("It is **sunny today.**")
+    assert looks_like_reasoning_fragment('Today includes "Becky\'s birthday')

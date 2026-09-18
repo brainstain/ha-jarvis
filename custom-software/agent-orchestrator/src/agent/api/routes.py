@@ -428,7 +428,7 @@ async def _run_simple(
         # "...and Bear (") is exactly the shape this must catch — confirmed
         # live, see the calendar-synthesis truncation incident.
         if text and looks_like_reasoning_fragment(text):
-            log.warning("synthesis_fragment", text=text[:80])
+            log.warning("synthesis_fragment", text=text[:80], tail=text[-60:])
             text = ""
         elif not text:
             log.warning("synthesis_empty", has_tool_result=last is not None)

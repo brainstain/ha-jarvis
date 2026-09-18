@@ -97,7 +97,7 @@ def make_synthesizer(llm: LLMClient, speech: bool = False) -> Callable[[dict[str
         # Reject text that looks like truncated inline reasoning rather than a
         # real answer (see looks_like_reasoning_fragment).
         if text and looks_like_reasoning_fragment(text):
-            log.warning("synthesis_fragment", text=text[:80])
+            log.warning("synthesis_fragment", text=text[:80], tail=text[-60:])
             text = ""
 
         if not text:
