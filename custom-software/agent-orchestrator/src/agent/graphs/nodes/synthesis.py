@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import UTC, datetime
 from typing import Any, Callable
 
 import httpx
 import structlog
 
-from agent.core.llm import LLMClient
+from agent.core.llm import LLMClient, looks_like_reasoning_fragment
 from agent.mcp.synthesis_projections import project_for_synthesis
 
 log = structlog.get_logger(__name__)
@@ -36,20 +35,6 @@ def _synthesis_system() -> str:
 
 
 _VOICE_HINT = " Your answer is spoken aloud: one or two short sentences, no lists or markup."
-
-# Detects partial reasoning extracted as a "last line" by LLMClient's inline-
-# reasoning stripper (agent.core.llm._strip_inline_reasoning) when qwen3's
-# thinking runs past max_tokens with no closing </think>. Mirrors the same
-# guard in agent.api.routes — see that module for the full incident history:
-# without think:false + this rejection, a multi-tool "assistant" (qwen3:30b)
-# reply can come back as a truncated mid-thought sentence (e.g. "But the
-# user might not need the UIDs...") instead of a real answer, and this graph
-# had no check to catch it before returning it straight to the user.
-_REASONING_FRAGMENT = re.compile(
-    r"^(But (wait|note|remember)|Wait[,.]|Hmm[,.]|Let me (think|check|re|reconsider)|"
-    r"I need to|We need to|Actually,|Hold on)",
-    re.IGNORECASE,
-)
 
 _PLANNING_SYSTEM = (
     "You are a planning assistant. Given a user request and available tools, output a JSON "
@@ -110,10 +95,8 @@ def make_synthesizer(llm: LLMClient, speech: bool = False) -> Callable[[dict[str
             text = ""
 
         # Reject text that looks like truncated inline reasoning rather than a
-        # real answer: no sentence-ending punctuation, or starts with a
-        # reasoning keyword (artifact of the inline-reasoning stripper's
-        # last-line fallback). See agent.api.routes for the matching guard.
-        if text and not (text[-1] in ".!?" and not _REASONING_FRAGMENT.match(text)):
+        # real answer (see looks_like_reasoning_fragment).
+        if text and looks_like_reasoning_fragment(text):
             log.warning("synthesis_fragment", text=text[:80])
             text = ""
 

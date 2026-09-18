@@ -15,7 +15,7 @@
   
   <!-- Title -->
   <text x="600" y="35" text-anchor="middle" font-size="18" font-weight="700" fill="#1a1a1a">Offline-First Home AI Agent — System Architecture v1.2</text>
-  <text x="600" y="54" text-anchor="middle" font-size="11" fill="#666">4-Node Proxmox Cluster · Qwen3-30B-A3B · LangGraph · MCP Protocol</text>
+  <text x="600" y="54" text-anchor="middle" font-size="11" fill="#666">4-Node Proxmox Cluster · Qwen3.8-27B · LangGraph · MCP Protocol</text>
 
   <!-- ═══ External Inputs (top) ═══ -->
   <rect x="30" y="70" width="1140" height="75" rx="8" fill="url(#ext)" stroke="#ce93d8" stroke-width="1.5" filter="url(#shadow)"/>
@@ -172,7 +172,7 @@
 
   <rect x="695" y="210" width="220" height="35" rx="4" fill="#c62828" stroke="#b71c1c" stroke-width="1"/>
   <text x="805" y="228" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Ollama (Primary)</text>
-  <text x="805" y="240" text-anchor="middle" font-size="7" fill="#ffcdd2">Qwen3-30B-A3B Q5_K_M · ~18 GB VRAM</text>
+  <text x="805" y="240" text-anchor="middle" font-size="7" fill="#ffcdd2">Qwen3.8-27B Q4_K_M · ~18 GB VRAM</text>
 
   <rect x="695" y="255" width="220" height="26" rx="4" fill="#fff" stroke="#ef9a9a" stroke-width="1"/>
   <text x="805" y="272" text-anchor="middle" font-size="9" fill="#333">faster-whisper (STT)</text>

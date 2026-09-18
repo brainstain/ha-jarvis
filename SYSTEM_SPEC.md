@@ -10,7 +10,7 @@
 > the deployed reverse proxy is Caddy, and Authentik — while running — isn't
 > gating any service yet. It also describes a model-degradation fallback
 > chain, 30B → 8B → 3B → HA intents, that no longer exists: the 8B/3B local
-> tiers were removed and `assistant` (qwen3:30b, remote) is the only chat
+> tiers were removed and `assistant` (qwen3.8:27b, remote) is the only chat
 > model). Keep reading it for the *reasoning* behind design choices, but for
 > **current, verified state** — what's actually running, what's healthy,
 > what's still open — see **`ARCHITECTURE.md`** instead.
@@ -85,7 +85,7 @@ Internet
 - Playwright (browser automation)
 
 **Inference Engine (Power Server)**
-- Ollama (primary, Qwen3-30B-A3B on 3090)
+- Ollama (primary, Qwen3.8-27B on 3090)
 - vLLM (secondary, robust tool calling) — **Phase 2+, not yet implemented** (absent from inference SERVER_SPEC and compose)
 - faster-whisper (STT, large-v3-turbo)
 - Piper TTS (text-to-speech)
@@ -118,7 +118,7 @@ Paperless-NGX → NAS storage → LlamaIndex → Qdrant (RAG embeddings)
 
 | Model | Quant | VRAM | GPU | Role | Loaded |
 |-------|-------|------|-----|------|--------|
-| Qwen3-30B-A3B | Q5_K_M | ~18 GB | 3090 | Primary reasoning + planning | On-demand |
+| Qwen3.8-27B | Q4_K_M | ~18 GB | 3090 | Primary reasoning + planning | On-demand |
 | Qwen3-8B | Q8_0 | ~9 GB | 1080 Ti | Fallback reasoning | On-demand |
 | Qwen3-4B | Q8_0 | ~5 GB | 1080 Ti | Router / classifier | Always |
 | nomic-embed-text-v1.5 | F16 | ~0.3 GB | 1080 Ti | Embeddings | Always |
@@ -134,7 +134,7 @@ LiteLLM on the Agent Node acts as the single inference endpoint for all consumer
 model_list:
   - model_name: "assistant"
     litellm_params:
-      model: "ollama/qwen3:30b-a3b-q5_K_M"
+      model: "ollama/qwen3.8:27b-q4_K_M"
       api_base: "http://inference:11434"
       timeout: 120
       stream: true
@@ -176,7 +176,7 @@ router_settings:
 
 ```
 Request → LiteLLM Proxy
-  ├─ Priority 1: Qwen3-30B-A3B on 3090 (Ollama)
+  ├─ Priority 1: Qwen3.8-27B on 3090 (Ollama)
   │    └─ If timeout/error after 2 retries...
   ├─ Priority 2: Qwen3-8B on 1080 Ti (Ollama)
   │    └─ If timeout/error after 2 retries...
@@ -455,7 +455,7 @@ Deployed and verified — see [`docs/MONITORING.md`](docs/MONITORING.md) for the
 ## 9. Deployment Phases
 
 ### Phase 1: Voice Pipeline + Basic HA (Week 1-2)
-- Deploy Ollama on Inference Engine with Qwen3-30B-A3B
+- Deploy Ollama on Inference Engine with Qwen3.8-27B
 - Deploy faster-whisper + Piper TTS on Inference Engine
 - Configure HA Ollama conversation agent
 - Set up ESP32 voice satellites with microWakeWord

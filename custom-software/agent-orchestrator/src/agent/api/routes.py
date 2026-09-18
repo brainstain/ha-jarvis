@@ -31,7 +31,6 @@ _tools_used = Counter(
     ["tool"],
 )
 
-import re as _re
 
 from agent import __version__
 from agent.api.schemas import (
@@ -45,7 +44,7 @@ from agent.api.schemas import (
 )
 from agent.config import get_settings
 from agent.core.history import ConversationHistory
-from agent.core.llm import LLMClient
+from agent.core.llm import LLMClient, looks_like_reasoning_fragment
 from agent.core.output import OutputRouter
 from agent.core.router import MetaRouter
 from agent.core.safety import SafetyGuard
@@ -108,13 +107,6 @@ _tool_filter: ToolFilter | None = None
 
 MCP_HEALTH_TIMEOUT = 5.0
 
-# Detects partial reasoning extracted as a "last line" by _strip_inline_reasoning.
-# Only matches phrases that are almost certainly mid-reasoning, not valid answers.
-_REASONING_FRAGMENT = _re.compile(
-    r"^(But (wait|note|remember)|Wait[,.]|Hmm[,.]|Let me (think|check|re|reconsider)|"
-    r"I need to|We need to|Actually,|Hold on)",
-    _re.IGNORECASE,
-)
 
 def _synthesis_system() -> str:
     """Build the synthesis system prompt with the actual current date.
@@ -431,12 +423,11 @@ async def _run_simple(
             text = ""
 
         # Reject text that looks like truncated inline reasoning rather than
-        # a real answer: no sentence-ending punctuation, or starts with a
-        # reasoning keyword (artifact of _strip_inline_reasoning's last-line
-        # fallback). No length exception: a long reply cut off mid-thought
-        # (e.g. "...and Bear (") is exactly the shape this must catch —
-        # confirmed live, see the calendar-synthesis truncation incident.
-        if text and not (text[-1] in ".!?" and not _REASONING_FRAGMENT.match(text)):
+        # a real answer (see looks_like_reasoning_fragment). No length
+        # exception: a long single-line reply cut off mid-thought (e.g.
+        # "...and Bear (") is exactly the shape this must catch — confirmed
+        # live, see the calendar-synthesis truncation incident.
+        if text and looks_like_reasoning_fragment(text):
             log.warning("synthesis_fragment", text=text[:80])
             text = ""
         elif not text:
