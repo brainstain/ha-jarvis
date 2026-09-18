@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     # prior list_calendars call, but google-workspace's get_events needs the
     # real Google Calendar ID, not the display name — confirmed live, it
     # either queried "primary" (finds nothing) or hallucinated the literal
-    # string "family" as calendarId (404s), for every family-calendar query.
+    # string "family" as calendar_id (404s), for every family-calendar query.
     # Single-user home system with a small, static calendar set, so a fixed
     # mapping surfaced in the tool-selection prompt is simpler and more
     # reliable than teaching the model a list-then-query flow it can't do

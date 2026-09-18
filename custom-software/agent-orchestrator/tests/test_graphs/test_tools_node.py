@@ -35,9 +35,9 @@ def test_instructs_omitting_time_max_for_next_event_queries():
 
 def test_never_asks_the_model_to_resolve_the_calendar_id():
     """Regression: confirmed live, the model named "Family" correctly from
-    a prior list_calendars result but then either queried calendarId
+    a prior list_calendars result but then either queried calendar_id
     "primary" (finds nothing) or hallucinated the literal string "family"
-    as calendarId (404s). calendarId is no longer mentioned in this prompt
+    as calendar_id (404s). calendar_id is no longer mentioned in this prompt
     at all — it's hidden from the model entirely (see
     registry._INJECTED_PARAMS) and injected server-side after selection
     for every calendar query, in agent.mcp.registry.inject_identity_args.

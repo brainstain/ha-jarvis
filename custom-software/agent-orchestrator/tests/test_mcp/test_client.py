@@ -739,7 +739,7 @@ def _calendar_tool() -> Any:
         input_schema={
             "type": "object",
             "properties": {
-                "calendarId": {"type": "string"},
+                "calendar_id": {"type": "string"},
                 "query": {"type": "string"},
             },
         },
@@ -749,29 +749,29 @@ def _calendar_tool() -> Any:
 def test_inject_identity_args_always_overrides_calendar_id_when_configured():
     """Regression: the model could never reliably resolve "Family" to its
     real Google Calendar ID — it either queried "primary" (finds nothing)
-    or hallucinated the literal string "family" as calendarId (404s). The
+    or hallucinated the literal string "family" as calendar_id (404s). The
     real ID is now injected server-side for every calendar-tool call, so
     the user never has to say "family calendar" explicitly.
     """
     args = inject_identity_args(
         _calendar_tool(),
-        {"query": "x", "calendarId": "primary"},
+        {"query": "x", "calendar_id": "primary"},
         "michael",
         family_calendar_id="family123@group.calendar.google.com",
     )
-    assert args["calendarId"] == "family123@group.calendar.google.com"
+    assert args["calendar_id"] == "family123@group.calendar.google.com"
 
 
 def test_inject_identity_args_leaves_calendar_id_unset_when_not_configured():
     args = inject_identity_args(_calendar_tool(), {"query": "x"}, "michael")
-    assert "calendarId" not in args
+    assert "calendar_id" not in args
 
 
 def test_render_tool_descriptions_hides_calendar_id_from_the_model():
-    """calendarId is never trustworthy from model output (see
+    """calendar_id is never trustworthy from model output (see
     inject_identity_args) — same as user_id/user_google_email, it should
     never even be offered to the model as a parameter to fill in.
     """
     description = render_tool_descriptions([_calendar_tool()])
-    assert "calendarId" not in description
+    assert "calendar_id" not in description
     assert "query" in description

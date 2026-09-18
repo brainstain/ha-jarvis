@@ -92,15 +92,15 @@ def render_openai_tools(tools: list[ToolSchema]) -> list[dict[str, Any]]:
 # tool-selection failures under testing: the model endlessly reasoning about
 # a value ("user_id") it has no way to know.
 #
-# calendarId joined this list 2026-09-18: this is a single-user home system
+# calendar_id joined this list 2026-09-18: this is a single-user home system
 # with one calendar that matters (the shared "Family" one), and the model
 # could never resolve it to the real ID on its own — it either queried
 # "primary" (finds nothing, since the events live on Family) or hallucinated
-# the literal string "family" as calendarId (404s). Hiding it and always
+# the literal string "family" as calendar_id (404s). Hiding it and always
 # injecting the real ID server-side makes every calendar query hit the
 # right calendar regardless of phrasing, instead of relying on the model to
 # infer from wording that a query is "about" the family calendar.
-_INJECTED_PARAMS = {"user_id", "user_google_email", "calendarId"}
+_INJECTED_PARAMS = {"user_id", "user_google_email", "calendar_id"}
 
 
 def render_tool_selection_schema(tools: list[ToolSchema]) -> dict[str, Any]:
@@ -197,8 +197,8 @@ def inject_identity_args(
         args["user_id"] = user_id
     if "user_google_email" in props and google_email:
         args["user_google_email"] = google_email
-    if "calendarId" in props and family_calendar_id:
-        args["calendarId"] = family_calendar_id
+    if "calendar_id" in props and family_calendar_id:
+        args["calendar_id"] = family_calendar_id
     return args
 
 

@@ -39,11 +39,11 @@ def _tool_selection_system() -> str:
     narrow ~24h time_max anyway for "next event" style queries, missing
     events further out (e.g. "next WORN event" days away).
 
-    calendarId is no longer surfaced to the model at all (see
+    calendar_id is no longer surfaced to the model at all (see
     registry._INJECTED_PARAMS / inject_identity_args) — it was never
     reliable at resolving "Family" to its real Google Calendar ID, either
     querying "primary" (finds nothing) or hallucinating the literal string
-    "family" as calendarId (404s). The real ID is now always injected
+    "family" as calendar_id (404s). The real ID is now always injected
     server-side after selection, for every calendar query regardless of
     phrasing, so the model is never asked to get this right.
     """
