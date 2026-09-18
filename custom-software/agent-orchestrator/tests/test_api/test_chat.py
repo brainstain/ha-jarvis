@@ -198,6 +198,39 @@ async def test_synthesis_prompt_carries_the_real_date(ha_registry, monkeypatch):
     assert datetime.now(UTC).strftime("%Y-%m-%d") in synthesis_system_prompt
 
 
+async def test_synthesis_prompt_omits_uid_from_tool_result(ha_registry, monkeypatch):
+    """Regression: calendar events carry a `uid` field with no use in a
+    spoken/text answer, but its presence in the raw tool-result JSON has
+    twice, live, provoked the model into deliberating out loud about
+    whether to mention it instead of just answering, truncating before it
+    ever got there. The synthesis prompt must not show the model a uid.
+    """
+    mcp, session = ha_registry
+    session.results["light_turn_off"] = FakeCallResult(
+        structured_content=[
+            {
+                "uid": "abc123@google.com",
+                "summary": "Becky's birthday",
+                "start": "2026-09-18T07:00:00",
+                "end": "2026-09-18T08:00:00",
+            }
+        ]
+    )
+    await mcp.discover()
+    llm = ScriptedLLM(
+        tool_call("ha-mcp__light_turn_off", {"entity_id": "light.kitchen"}),
+        {"role": "assistant", "content": "Tomorrow you have Becky's birthday."},
+    )
+    install(SIMPLE, llm, mcp, monkeypatch)
+
+    await routes.chat(request())
+
+    synthesis_user_message = llm.messages_seen[1][1]["content"]
+    assert "uid" not in synthesis_user_message
+    assert "abc123@google.com" not in synthesis_user_message
+    assert "Becky's birthday" in synthesis_user_message
+
+
 async def test_synthesis_disables_thinking(ha_registry, monkeypatch):
     """Regression: synthesis previously left `think` unset (effectively
     think:true), which frequently made the model answer from its own

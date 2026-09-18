@@ -65,6 +65,41 @@ async def test_synthesis_system_prompt_carries_the_real_date():
 
 
 @pytest.mark.asyncio
+async def test_synthesis_prompt_omits_uid_from_tool_result():
+    """Regression: calendar events carry a `uid` field with no use in a
+    spoken/text answer, but its presence in the raw tool-result JSON has
+    twice, live, provoked the model into deliberating out loud about
+    whether to mention it instead of just answering, truncating before it
+    ever got there. The synthesis prompt must not show the model a uid.
+    """
+    state = {
+        "message": "what's on the calendar tomorrow",
+        "tool_calls": [
+            {
+                "tool": "mcp-calendar__list_events",
+                "result": [
+                    {
+                        "uid": "abc123@google.com",
+                        "summary": "Becky's birthday",
+                        "start": "2026-09-18T07:00:00",
+                        "end": "2026-09-18T08:00:00",
+                    }
+                ],
+            }
+        ],
+    }
+    llm = FakeLLM("Tomorrow you have Becky's birthday.")
+    synthesize = make_synthesizer(llm)
+
+    await synthesize(state)
+
+    tool_result_message = llm.calls[0]["messages"][-1]["content"]
+    assert "uid" not in tool_result_message
+    assert "abc123@google.com" not in tool_result_message
+    assert "Becky's birthday" in tool_result_message
+
+
+@pytest.mark.asyncio
 async def test_truncated_inline_reasoning_falls_back_instead_of_leaking():
     """The exact shape of the bug: mid-thought text with no closing
     punctuation, cut off by max_tokens before the model ever answered."""

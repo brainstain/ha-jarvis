@@ -1,6 +1,6 @@
-"""LLMClient response-cleanup: _strip_inline_reasoning."""
+"""LLMClient response-cleanup: _strip_inline_reasoning, trim_for_synthesis."""
 
-from agent.core.llm import _strip_inline_reasoning
+from agent.core.llm import _strip_inline_reasoning, trim_for_synthesis
 
 
 def test_strips_closed_think_block():
@@ -42,3 +42,44 @@ def test_untagged_truncated_reasoning_falls_back_to_last_line():
 
 def test_empty_text_returned_as_is():
     assert _strip_inline_reasoning("") == ""
+
+
+def test_trim_for_synthesis_drops_uid_and_empty_fields():
+    """Regression: raw calendar events include a `uid` field with no use in
+    a spoken/text answer, but its presence in the synthesis prompt has
+    twice, live, provoked the model into deliberating out loud about
+    whether to mention it ("But the user might not need the UIDs...")
+    instead of answering — burning the tight token budget and truncating.
+    """
+    events = [
+        {
+            "uid": "abc123@google.com",
+            "summary": "Becky's birthday",
+            "start": "2026-09-18T07:00:00",
+            "end": "2026-09-18T08:00:00",
+            "description": "",
+            "location": "",
+            "all_day": False,
+            "calendar_id": "primary",
+        }
+    ]
+    assert trim_for_synthesis(events) == [
+        {
+            "summary": "Becky's birthday",
+            "start": "2026-09-18T07:00:00",
+            "end": "2026-09-18T08:00:00",
+            "all_day": False,
+            "calendar_id": "primary",
+        }
+    ]
+
+
+def test_trim_for_synthesis_recurses_into_nested_structures():
+    value = {"events": [{"uid": "x", "summary": "Bear", "location": ""}], "count": 1}
+    assert trim_for_synthesis(value) == {"events": [{"summary": "Bear"}], "count": 1}
+
+
+def test_trim_for_synthesis_passes_through_non_dict_values():
+    assert trim_for_synthesis("light.kitchen is off") == "light.kitchen is off"
+    assert trim_for_synthesis(None) is None
+    assert trim_for_synthesis(42) == 42

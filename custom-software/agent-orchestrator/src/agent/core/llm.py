@@ -71,6 +71,31 @@ def _strip_inline_reasoning(text: str) -> str:
         return lines[-1]
     return text
 
+
+def trim_for_synthesis(value: Any) -> Any:
+    """Strip noise fields from a tool result before it goes into a synthesis
+    prompt: opaque IDs the model has no reason to mention, and empty-string
+    fields that just add tokens without adding information.
+
+    Confirmed live, twice: calendar events include a `uid` field the model
+    has no use for in a spoken/text answer, but its mere presence in the raw
+    JSON repeatedly provoked the model into deliberating out loud about
+    whether to mention it ("But the user might not need the UIDs or other
+    details...") instead of just answering — burning the tight synthesis
+    token budget on that instead of a real response, and truncating before
+    it got there.
+    """
+    if isinstance(value, list):
+        return [trim_for_synthesis(v) for v in value]
+    if isinstance(value, dict):
+        return {
+            k: trim_for_synthesis(v)
+            for k, v in value.items()
+            if k != "uid" and v != ""
+        }
+    return value
+
+
 log = structlog.get_logger(__name__)
 
 
