@@ -130,7 +130,6 @@ def test_shipped_config_is_valid():
         "mcp-memory-scoped",
         "mcp-notifications",
         "mcp-workflow-status",
-        "mcp-calendar",
         "google-workspace",
     ]
     assert enabled[0].transport == "sse"
@@ -424,6 +423,39 @@ async def test_uncategorized_server_still_registers():
     mcp = build_registry(configs, {"mystery": FakeSession(tools=[FakeTool("do_thing")])})
     registry = await mcp.discover()
     assert [t.category for t in registry.tools] == ["other"]
+
+
+async def test_google_workspace_calendar_tools_get_overridden_category():
+    """google-workspace bundles Gmail/Drive/Docs/Calendar under one
+    "google" category, which isn't in router.TOOL_CATEGORIES and so is
+    never reachable. Calendar-specific tool names must land in the
+    router-reachable "calendar" category instead; everything else stays
+    under the server's own "google" category.
+    """
+    configs = [
+        MCPServerConfig(
+            name="google-workspace",
+            transport="stdio",
+            command="workspace-mcp",
+            categories=["google"],
+        )
+    ]
+    mcp = build_registry(
+        configs,
+        {
+            "google-workspace": FakeSession(
+                tools=[FakeTool("get_events"), FakeTool("send_gmail_message")]
+            )
+        },
+    )
+    registry = await mcp.discover()
+
+    assert [t.name for t in registry.by_category("calendar")] == [
+        qualified_name("google-workspace", "get_events")
+    ]
+    assert [t.name for t in registry.by_category("google")] == [
+        qualified_name("google-workspace", "send_gmail_message")
+    ]
 
 
 async def test_multi_category_tool_is_selected_once():

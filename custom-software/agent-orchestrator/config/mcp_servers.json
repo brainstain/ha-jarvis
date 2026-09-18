@@ -83,19 +83,19 @@
         "HA_TOKEN": "${HA_TOKEN}"
       },
       "categories": ["calendar"],
-      "enabled": true,
+      "enabled": false,
       "timeout": 20,
-      "$comment": "CALENDAR_PROVIDER=ha (default) uses HA Google Calendar. This is the canonical calendar path — google-workspace's --tools list deliberately omits 'calendar' to avoid a second, conflicting calendar integration. HA_URL/HA_TOKEN must be listed here explicitly — see mcp-notifications' $comment for why."
+      "$comment": "CALENDAR_PROVIDER=ha (default) uses HA Google Calendar. Disabled 2026-09-17 to trial google-workspace's 'calendar' tools instead (native keyword search + open-ended forward date range vs. this server's required start/end window with no search) — see docs/GOOGLE_WORKSPACE_MCP.md. Re-enable (and drop 'calendar' from google-workspace's --tools below) to swap back; don't run both at once, they'd expose two conflicting calendar integrations."
     },
     {
       "name": "google-workspace",
       "transport": "stdio",
       "command": "workspace-mcp",
-      "args": ["--tool-tier", "core", "--tools", "gmail", "drive", "docs"],
+      "args": ["--tool-tier", "core", "--tools", "gmail", "drive", "docs", "calendar"],
       "categories": ["google"],
       "enabled": true,
       "timeout": 30,
-      "$comment": "Gmail/Docs/Drive via taylorwilsdon/workspace-mcp (PyPI: workspace-mcp). Needs GOOGLE_OAUTH_CLIENT_ID/GOOGLE_OAUTH_CLIENT_SECRET in the container env (set in docker-compose.yml from .env) plus a one-time interactive OAuth consent — see docs/GOOGLE_WORKSPACE_MCP.md. Safe to leave enabled without credentials: discover() catches the failure per-server (registry.py) and the rest of the orchestrator boots normally; it just won't have Gmail/Docs/Drive tools until credentials + consent are done, and self-heals on the next request once they are, no restart needed. Deliberately excludes 'calendar' from --tools — mcp-calendar (HA-backed) is the canonical calendar integration; don't add it here."
+      "$comment": "Gmail/Docs/Drive/Calendar via taylorwilsdon/workspace-mcp (PyPI: workspace-mcp). Needs GOOGLE_OAUTH_CLIENT_ID/GOOGLE_OAUTH_CLIENT_SECRET in the container env (set in docker-compose.yml from .env) plus a one-time interactive OAuth consent — see docs/GOOGLE_WORKSPACE_MCP.md. Safe to leave enabled without credentials: discover() catches the failure per-server (registry.py) and the rest of the orchestrator boots normally; it just won't have tools until credentials + consent are done, and self-heals on the next request once they are, no restart needed. 'calendar' added 2026-09-17 to trial as the canonical calendar path in place of mcp-calendar (now disabled above) — its get_events tool supports keyword search and an open-ended forward time range that mcp-calendar's HA-proxied start/end window doesn't."
     },
     {
       "name": "mcp-shopping-list",

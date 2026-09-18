@@ -33,6 +33,25 @@ QUALIFIER = "__"
 # their tools would be invisible to the filter.
 DEFAULT_CATEGORY = "other"
 
+# categories in mcp_servers.json apply to a whole server, but some servers
+# bundle unrelated domains — google-workspace exposes Gmail/Drive/Docs
+# alongside Calendar under one "google" category, which isn't even in
+# router.TOOL_CATEGORIES, so none of it is reachable by category-based
+# selection. This overrides specific tool names to a narrower, reachable
+# category instead of the server-wide default; anything not listed here
+# keeps falling back to the server's own "categories".
+_TOOL_CATEGORY_OVERRIDES: dict[str, dict[str, list[str]]] = {
+    "google-workspace": {
+        "list_calendars": ["calendar"],
+        "get_events": ["calendar"],
+        "manage_event": ["calendar"],
+        "manage_out_of_office": ["calendar"],
+        "manage_focus_time": ["calendar"],
+        "query_freebusy": ["calendar"],
+        "create_calendar": ["calendar"],
+    },
+}
+
 
 def qualified_name(server: str, tool: str) -> str:
     """Globally unique tool name — two servers may both expose ``search``."""
@@ -221,8 +240,9 @@ class MCPToolRegistry:
                 log.warning("mcp_server_uncategorized", server=config.name)
                 categories = [DEFAULT_CATEGORY]
 
+            overrides = _TOOL_CATEGORY_OVERRIDES.get(config.name, {})
             for tool in tools:
-                self._register(config.name, tool, categories)
+                self._register(config.name, tool, overrides.get(tool["name"], categories))
 
             log.info(
                 "mcp_server_discovered",
