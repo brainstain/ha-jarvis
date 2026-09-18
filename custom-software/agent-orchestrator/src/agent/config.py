@@ -78,6 +78,16 @@ class Settings(BaseSettings):
     # model has no way to know — this is a single-user home system, so it's
     # injected server-side the same way user_id is, from this fixed value.
     google_workspace_user_email: str = ""
+    # The model can correctly identify "Family" as a calendar name from a
+    # prior list_calendars call, but google-workspace's get_events needs the
+    # real Google Calendar ID, not the display name — confirmed live, it
+    # either queried "primary" (finds nothing) or hallucinated the literal
+    # string "family" as calendarId (404s), for every family-calendar query.
+    # Single-user home system with a small, static calendar set, so a fixed
+    # mapping surfaced in the tool-selection prompt is simpler and more
+    # reliable than teaching the model a list-then-query flow it can't do
+    # in one turn anyway (see make_tool_executor: one tool call per turn).
+    google_calendar_family_id: str = ""
 
     # ── Memory ───────────────────────────────────────────────
     memory_auto_promote_family: bool = True

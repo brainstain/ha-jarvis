@@ -38,8 +38,23 @@ def _tool_selection_system() -> str:
     open-ended forward search, but confirmed live, the model filled in a
     narrow ~24h time_max anyway for "next event" style queries, missing
     events further out (e.g. "next WORN event" days away).
+
+    The calendar-id line fixes a third instance: the model can name
+    "Family" as a calendar from a prior list_calendars result, but
+    get_events needs the real Google Calendar ID, not the display name —
+    confirmed live, it either queried "primary" (finds nothing) or
+    hallucinated the literal string "family" as calendarId (404s), for
+    every family-calendar query.
     """
     now = datetime.now(UTC)
+    family_cal_id = get_settings().google_calendar_family_id
+    family_cal_hint = (
+        f' For calendar tools, the "Family" calendar\'s real ID is '
+        f'"{family_cal_id}" — use that exact string as calendarId for '
+        f'family/shared-calendar queries, never the word "family".'
+        if family_cal_id
+        else ""
+    )
     return (
         "Pick the single tool that answers the user's request, "
         'or "none" if no tool fits. '
@@ -48,6 +63,7 @@ def _tool_selection_system() -> str:
         "description, to compute relative dates like \"today\" or \"tomorrow\". "
         "For \"next\"/\"upcoming\"/\"when is\" event queries with no explicit "
         "end date, omit time_max entirely rather than guessing a narrow window."
+        f"{family_cal_hint}"
     )
 
 

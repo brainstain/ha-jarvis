@@ -165,6 +165,10 @@ services:
       # google-workspace tool calls server-side (see inject_identity_args in
       # mcp/registry.py); the model has no way to know the account otherwise.
       GOOGLE_WORKSPACE_USER_EMAIL: ${GOOGLE_WORKSPACE_USER_EMAIL:-}
+      # Real Google Calendar ID for the shared "Family" calendar — the model
+      # can't reliably resolve the display name to this on its own, see
+      # config.py's Settings.google_calendar_family_id docstring.
+      GOOGLE_CALENDAR_FAMILY_ID: ${GOOGLE_CALENDAR_FAMILY_ID:-}
     networks:
       - agent
     extra_hosts:

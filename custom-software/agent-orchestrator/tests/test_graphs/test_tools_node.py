@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+from agent.config import get_settings
 from agent.graphs.nodes.tools import _tool_selection_system
 
 
@@ -31,3 +32,28 @@ def test_instructs_omitting_time_max_for_next_event_queries():
     prompt = _tool_selection_system()
     assert "time_max" in prompt
     assert "omit" in prompt.lower()
+
+
+def test_includes_the_real_family_calendar_id_when_configured(monkeypatch):
+    """Regression: confirmed live, the model named "Family" correctly from
+    a prior list_calendars result but then either queried calendarId
+    "primary" (finds nothing) or hallucinated the literal string "family"
+    as calendarId (404s) — it needs the real ID handed to it directly.
+    """
+    monkeypatch.setenv("GOOGLE_CALENDAR_FAMILY_ID", "family123@group.calendar.google.com")
+    get_settings.cache_clear()
+    try:
+        prompt = _tool_selection_system()
+        assert "family123@group.calendar.google.com" in prompt
+    finally:
+        get_settings.cache_clear()
+
+
+def test_omits_the_family_calendar_hint_when_not_configured(monkeypatch):
+    monkeypatch.delenv("GOOGLE_CALENDAR_FAMILY_ID", raising=False)
+    get_settings.cache_clear()
+    try:
+        prompt = _tool_selection_system()
+        assert "family" not in prompt.lower()
+    finally:
+        get_settings.cache_clear()
