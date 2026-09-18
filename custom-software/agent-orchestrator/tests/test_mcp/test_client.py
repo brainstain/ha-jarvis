@@ -774,4 +774,67 @@ def test_render_tool_descriptions_hides_calendar_id_from_the_model():
     """
     description = render_tool_descriptions([_calendar_tool()])
     assert "calendar_id" not in description
+
+
+def test_render_tool_descriptions_surfaces_param_descriptions():
+    """Regression: confirmed live, the model filled get_events' optional
+    "query" with an arbitrary word from the user's phrasing (e.g.
+    "tomorrow"), which get_events passes to Google's API as a literal
+    keyword match against each event's summary/description/location —
+    silently filtering out real events that don't contain that word. The
+    MCP server's own schema already documents exactly what "query" does
+    ("A keyword to search for within event fields..."), but this text was
+    being dropped — only each param's name/type reached the model. Now a
+    param's own schema description rides along, reusing the MCP server's
+    documentation instead of a bespoke, hand-maintained prompt rule.
+    """
+    from agent.mcp.tool_filter import ToolSchema
+
+    tool = ToolSchema(
+        name="get_events",
+        server="google-workspace",
+        category="calendar",
+        description="Retrieves events from a calendar.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "A keyword to search for within event fields (summary, "
+                        "description, location). Ignored if event_id is provided."
+                    ),
+                },
+                "max_results": {"type": "integer", "default": 25},
+            },
+        },
+    )
+    text = render_tool_descriptions([tool])
+    assert "A keyword to search for within event fields" in text
+    # max_results has no "description" in its schema — nothing to append.
+    assert "max_results: integer" in text
+    assert "max_results: integer —" not in text
+
+
+def test_render_tool_descriptions_truncates_long_param_descriptions():
+    """A per-param hint must stay short — every tool in a max-7 selection
+    renders its full param list on each tool-selection call, so an
+    unbounded description (some run 300+ chars in the wild, e.g.
+    get_events' "detailed" param) would bloat the prompt across every
+    call, not just the one tool that needs the extra context.
+    """
+    from agent.mcp.tool_filter import ToolSchema
+
+    tool = ToolSchema(
+        name="get_events",
+        server="google-workspace",
+        category="calendar",
+        input_schema={
+            "type": "object",
+            "properties": {"detailed": {"type": "boolean", "description": "x" * 400}},
+        },
+    )
+    text = render_tool_descriptions([tool])
+    assert "x" * 400 not in text
+    assert "x" * 120 in text
     assert "query" in description

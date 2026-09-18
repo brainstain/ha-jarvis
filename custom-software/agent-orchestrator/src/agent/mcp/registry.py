@@ -134,6 +134,37 @@ def render_tool_selection_schema(tools: list[ToolSchema]) -> dict[str, Any]:
     }
 
 
+# Cap on a per-parameter hint appended from its schema `description` — long
+# enough to disambiguate an easily-misused param (see _param_hint), short
+# enough that every tool in a max-7 selection doesn't bloat the prompt with
+# each param's full JSON-schema docs.
+_PARAM_HINT_MAX_CHARS = 120
+
+
+def _param_hint(info: dict[str, Any]) -> str:
+    """First sentence of a parameter's schema `description`, if any.
+
+    Confirmed live: the model filled get_events' optional `query` param
+    with an arbitrary word from the user's phrasing (e.g. "tomorrow"),
+    which get_events passes straight to Google's API as a literal keyword
+    match against each event's summary/description/location — a real
+    event outside that literal text is silently filtered out, so a
+    perfectly correct date-range query returns zero results. The MCP
+    server already documents this exactly right in query's own
+    `description` ("A keyword to search for within event fields..."), but
+    `render_tool_descriptions` was dropping every parameter's description
+    and showing only its name/type — so the model never saw the one line
+    of the tool's own docs that would have stopped this misuse. Reusing
+    the MCP server's own description here means this fix (and any future
+    one like it) comes free from whatever tool ships next, instead of
+    needing a bespoke prompt instruction hand-written and maintained per
+    parameter.
+    """
+    description = info.get("description") or ""
+    first_sentence = description.split(". ")[0].strip()
+    return first_sentence[:_PARAM_HINT_MAX_CHARS]
+
+
 def render_tool_descriptions(tools: list[ToolSchema]) -> str:
     """Human-readable tool listing for the grammar-constrained selection prompt.
 
@@ -145,10 +176,16 @@ def render_tool_descriptions(tools: list[ToolSchema]) -> str:
         props = tool.input_schema.get("properties") or {}
         required = set(tool.input_schema.get("required") or [])
         visible = {k: v for k, v in props.items() if k not in _INJECTED_PARAMS}
-        params = ", ".join(
-            f"{name}{'' if name in required else '?'}: {info.get('type', 'any')}"
-            for name, info in visible.items()
-        )
+        param_parts = []
+        for name, info in visible.items():
+            marker = "" if name in required else "?"
+            ptype = info.get("type", "any")
+            hint = _param_hint(info)
+            part = f"{name}{marker}: {ptype}"
+            if hint:
+                part += f" — {hint}"
+            param_parts.append(part)
+        params = ", ".join(param_parts)
         description = tool.description or f"{tool.name} (via {tool.server})"
         lines.append(f"- {tool.name}({params}): {description}")
     return "\n".join(lines)
