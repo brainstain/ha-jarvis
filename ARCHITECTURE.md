@@ -38,7 +38,7 @@ All containers healthy.
 
 | Service | Port | Status |
 |---------|------|--------|
-| Ollama (qwen3:30b) | 11434 | Healthy — 18 GB model on RTX 3090. This is the only chat model in the stack (see Agent Node below) |
+| Ollama (qwen3.8:27b) | 11434 | Healthy — 18 GB model on RTX 3090. This is the only chat model in the stack (see Agent Node below) |
 | **wyoming-identify-proxy** | **10300 (host-facing)** | Healthy — transparent Wyoming ASR relay in front of the real Whisper server (see below), also taps audio for speaker ID. HA talks to this now, unchanged from its own point of view |
 | wyoming-whisper | 10300 (internal only) | Healthy, and **actually transcribes now** — built from a local wrapper (`servers/inference/wyoming-whisper/Dockerfile`) adding CUDA runtime libs the upstream image never bundled. Confirmed live: every real transcription crashed with a missing-`libcublas` error until this fix; no earlier test in this project exercised real audio, only HA's text-input intent stage, so it went unnoticed. No longer has a host port — reached only via `wyoming-identify-proxy` |
 | speechbrain-speaker-id | 8200 | Healthy — `POST /enroll`, `POST /identify`, `GET/POST /config` (runtime-configurable match threshold), `DELETE /speakers/{id}`. Enrollment UI at `enroll.michaelgoldstein.co` (see Custom Software table) |
@@ -74,7 +74,7 @@ just don't confuse the two when looking at HA's integration list.
 | Service | Status | Notes |
 |---------|--------|-------|
 | ollama-agent | Up (healthcheck cosmetic) | Only hosts `nomic-embed-text:v1.5` for embeddings now. `qwen3:4b`/`qwen3:8b`/`qwen3:1.7b` weights are still present on disk (pulled previously) but **not referenced by `litellm_config.yaml` and not in the routing path** — the 4b/8b tiers were removed in PR #11; don't assume their presence on disk means they're live. |
-| LiteLLM | Up (Docker healthcheck shows unhealthy — cosmetic, see note below) | Two models: `assistant` (`qwen3:30b`, routed to the **inference node's** RTX 3090 at `inference.home.local:11434`, not local) and `embeddings` (`nomic-embed-text:v1.5`, local at `ollama:11434`) |
+| LiteLLM | Up (Docker healthcheck shows unhealthy — cosmetic, see note below) | Two models: `assistant` (`qwen3.8:27b`, routed to the **inference node's** RTX 3090 at `inference.home.local:11434`, not local) and `embeddings` (`nomic-embed-text:v1.5`, local at `ollama:11434`) |
 | Prometheus | Healthy | Scrapes agent + inference node |
 | Grafana | Up | grafana.michaelgoldstein.co |
 | Qdrant | Healthy | Vector DB for agent memory — port 6333 |

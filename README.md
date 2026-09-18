@@ -86,7 +86,7 @@ Voice Satellite (ESPHome) ──▶ HA VM (192.168.13.20)
                      LiteLLM   Qdrant memory      MCP servers (stdio/SSE):
                           │                       ha-mcp, mcp-calendar,
                           ▼                       mcp-notifications,
-                 Ollama qwen3:30b                 mcp-workflow-status,
+                 Ollama qwen3.8:27b               mcp-workflow-status,
                  (Inference node, RTX 3090)        mcp-memory-scoped,
                                                     google-workspace
                                   │
@@ -95,7 +95,7 @@ Voice Satellite (ESPHome) ──▶ HA VM (192.168.13.20)
 
 The agent node's own 1080 Ti (`ollama-agent`) only serves the local
 `nomic-embed-text` embeddings model now — there's no local-LLM fallback tier;
-`assistant` (qwen3:30b) is the only chat model, routed to the inference node.
+`assistant` (qwen3.8:27b) is the only chat model, routed to the inference node.
 
 ## Deployment Phases
 

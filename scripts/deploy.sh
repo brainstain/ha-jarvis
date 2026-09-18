@@ -175,7 +175,7 @@ cmd_status() {
 
 cmd_pull_models() {
     info "Pulling models on Inference Engine (3090)..."
-    ssh_cmd "$INFERENCE_HOST" "docker exec ollama-inference ollama pull qwen3:30b"
+    ssh_cmd "$INFERENCE_HOST" "docker exec ollama-inference ollama pull qwen3.8:27b"
 
     info "Pulling models on Agent Node (1080 Ti)..."
     ssh_cmd "$AGENT_HOST" "docker exec ollama-agent ollama pull qwen3:4b"
