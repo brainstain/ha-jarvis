@@ -10,7 +10,8 @@ from typing import Any, Callable
 import httpx
 import structlog
 
-from agent.core.llm import LLMClient, trim_for_synthesis
+from agent.core.llm import LLMClient
+from agent.mcp.synthesis_projections import project_for_synthesis
 
 log = structlog.get_logger(__name__)
 
@@ -81,11 +82,12 @@ def make_synthesizer(llm: LLMClient, speech: bool = False) -> Callable[[dict[str
                     "content": f"Tool {call.get('tool')} failed: {call['error']}",
                 })
             elif call.get("result") is not None:
+                projected = project_for_synthesis(call.get("tool", ""), call["result"])
                 messages.append({
                     "role": "assistant",
                     "content": (
                         f"Tool {call.get('tool')} returned: "
-                        f"{json.dumps(trim_for_synthesis(call['result']), default=str)}"
+                        f"{json.dumps(projected, default=str)}"
                     ),
                 })
 

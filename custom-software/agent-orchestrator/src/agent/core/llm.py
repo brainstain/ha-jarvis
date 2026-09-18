@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 import structlog
@@ -72,28 +72,39 @@ def _strip_inline_reasoning(text: str) -> str:
     return text
 
 
+def filter_recursive(value: Any, keep: Callable[[str, Any], bool]) -> Any:
+    """Rebuild a JSON-like value, keeping only dict entries for which
+    ``keep(key, value)`` is true. Recurses into lists and nested dicts at
+    any depth; non-dict/list values pass through unchanged.
+
+    Shared core for trim_for_synthesis's denylist and
+    agent.mcp.synthesis_projections' per-tool allowlists — same walk, only
+    the predicate differs.
+    """
+    if isinstance(value, list):
+        return [filter_recursive(v, keep) for v in value]
+    if isinstance(value, dict):
+        return {k: filter_recursive(v, keep) for k, v in value.items() if keep(k, v)}
+    return value
+
+
 def trim_for_synthesis(value: Any) -> Any:
     """Strip noise fields from a tool result before it goes into a synthesis
     prompt: opaque IDs the model has no reason to mention, and empty-string
     fields that just add tokens without adding information.
 
-    Confirmed live, twice: calendar events include a `uid` field the model
-    has no use for in a spoken/text answer, but its mere presence in the raw
-    JSON repeatedly provoked the model into deliberating out loud about
-    whether to mention it ("But the user might not need the UIDs or other
-    details...") instead of just answering — burning the tight synthesis
-    token budget on that instead of a real response, and truncating before
-    it got there.
+    This is the generic fallback for any tool without an explicit allowlist
+    in agent.mcp.synthesis_projections — a denylist can only ever catch the
+    noise patterns we've actually seen (uid, empty strings), not whatever a
+    new tool introduces. Confirmed live, twice: calendar events include a
+    `uid` field the model has no use for in a spoken/text answer, but its
+    mere presence in the raw JSON repeatedly provoked the model into
+    deliberating out loud about whether to mention it ("But the user might
+    not need the UIDs or other details...") instead of just answering —
+    burning the tight synthesis token budget on that instead of a real
+    response, and truncating before it got there.
     """
-    if isinstance(value, list):
-        return [trim_for_synthesis(v) for v in value]
-    if isinstance(value, dict):
-        return {
-            k: trim_for_synthesis(v)
-            for k, v in value.items()
-            if k != "uid" and v != ""
-        }
-    return value
+    return filter_recursive(value, keep=lambda k, v: k != "uid" and v != "")
 
 
 log = structlog.get_logger(__name__)

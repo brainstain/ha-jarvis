@@ -44,7 +44,7 @@ from agent.api.schemas import (
     ThreadInfo,
 )
 from agent.config import get_settings
-from agent.core.llm import LLMClient, trim_for_synthesis
+from agent.core.llm import LLMClient
 from agent.core.output import OutputRouter
 from agent.core.router import MetaRouter
 from agent.core.safety import SafetyGuard
@@ -70,6 +70,7 @@ from agent.mcp.registry import (
     render_tool_descriptions,
     render_tool_selection_schema,
 )
+from agent.mcp.synthesis_projections import project_for_synthesis
 from agent.mcp.tool_filter import ToolFilter
 
 log = structlog.get_logger(__name__)
@@ -372,7 +373,10 @@ async def _run_simple(
             outcome = (
                 f"error: {last['error']}"
                 if last.get("error")
-                else json.dumps(trim_for_synthesis(last.get("result")), default=str)
+                else json.dumps(
+                    project_for_synthesis(last.get("tool", ""), last.get("result")),
+                    default=str,
+                )
             )
             user_content = f"{request.message}\n\n[Tool result: {outcome}]"
         else:
