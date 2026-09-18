@@ -54,7 +54,9 @@ def looks_like_reasoning_fragment(text: str) -> bool:
     """
     if _REASONING_FRAGMENT.match(text):
         return True
-    return "\n" not in text and text[-1:] not in (".", "!", "?")
+    # A closing quote/paren/emphasis mark after the final punctuation is still
+    # a complete sentence: 'You have "Soccer practice."' / '(at 10:00 AM.)'
+    return "\n" not in text and text.rstrip("\"')]*_”’")[-1:] not in (".", "!", "?")
 
 
 def _strip_inline_reasoning(text: str, truncated: bool = True) -> str:
